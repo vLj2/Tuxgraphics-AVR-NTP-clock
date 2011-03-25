@@ -39,7 +39,7 @@ static uint8_t myip[4] = {10,0,0,28};
 // as ntpip:
 static uint8_t gwip[4] = {10,0,0,2};
 // change summer/winter time and your timezone here (utc +1 is Germany, France etc... in winter), unit is hours times 10:
-int16_t hours_offset_to_utc=10;  // 20 means 2.0 hours = 2 hours
+int8_t hours_offset_to_utc=10;  // 20 means 2.0 hours = 2 hours
 //
 // --------------- modify stop
 // time.apple.com (any of 17.254.0.31, 17.254.0.26, 17.254.0.27, 17.254.0.28):
@@ -432,7 +432,7 @@ int main(void){
                         eeprom_read_block((uint8_t *)myip,(void *)1,sizeof(myip));
                         eeprom_read_block((uint8_t *)gwip,(void *)6,sizeof(gwip));
                         eeprom_read_block((uint8_t *)ntpip,(void *)11,sizeof(ntpip));
-                        hours_offset_to_utc=eeprom_read_byte((uint8_t *)16);
+                        hours_offset_to_utc=(int8_t)eeprom_read_byte((uint8_t *)16);
                         eeprom_read_block((char *)password,(void *)19,sizeof(password));
                         password[7]='\0'; // make sure it is terminated, should not be necessary
                 }
@@ -516,7 +516,7 @@ int main(void){
                                 }
                                 // link up or link down
                                 if (haveNTPanswer>0){
-                                        minutes=gmtime(time+(uint32_t)360*(uint32_t)hours_offset_to_utc,day,clock);
+                                        minutes=gmtime(time+(int32_t)360*(int32_t)hours_offset_to_utc,day,clock);
                                         if (prev_minutes!=minutes){
                                                 // update complete display
                                                 lcd_clrscr();
@@ -616,7 +616,7 @@ int main(void){
                                         plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"));
                                         plen=fill_tcp_data_p(buf,plen,PSTR("<h2>AVR NTP clock</h2><pre>\n"));
                                         if (haveNTPanswer){
-                                                gmtime(time+(uint32_t)360*(uint32_t)hours_offset_to_utc,day,clock);
+                                                gmtime(time+(int32_t)360*(int32_t)hours_offset_to_utc,day,clock);
                                                 plen=fill_tcp_data(buf,plen,day);
                                                 plen=fill_tcp_data(buf,plen,"\n");
                                                 plen=fill_tcp_data(buf,plen,clock);
