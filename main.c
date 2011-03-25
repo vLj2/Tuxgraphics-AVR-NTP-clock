@@ -323,6 +323,7 @@ int8_t analyse_get_url(char *str)
 uint16_t print_webpage(uint8_t *buf)
 {
         uint16_t plen;
+        uint8_t i;
         plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nPragma: no-cache\r\n\r\n"));
         plen=fill_tcp_data_p(buf,plen,PSTR("<pre>AVR NTP clock, config\n\n<form action=/config method=get>Clock own IP: <input type=text name=ip value="));
         ip2str(strbuf,myip);
@@ -334,11 +335,13 @@ uint16_t print_webpage(uint8_t *buf)
         ip2str(strbuf,ntpip);
         plen=fill_tcp_data(buf,plen,strbuf);
         plen=fill_tcp_data_p(buf,plen,PSTR(">\nOffset to UTC:<input type=text name=tz value="));
+        i=0;
         if (hours_offset_to_utc>=0){
-                strbuf[0]='+';
+                strbuf[i]='+';
+                i++;
         }
-        itoa(hours_offset_to_utc,&(strbuf[1]),10);
-        adddotifneeded(&(strbuf[1]));
+        itoa(hours_offset_to_utc,&(strbuf[i]),10);
+        adddotifneeded(&(strbuf[i]));
         plen=fill_tcp_data(buf,plen,strbuf);
         plen=fill_tcp_data_p(buf,plen,PSTR(">\nNew password: <input type=text name=np>\n\nPassword:     <input type=password name=pw><input type=hidden name=fd value=1>\n<input type=submit value=apply></form>\n</pre>"));
         return(plen);
