@@ -64,7 +64,7 @@ static uint8_t ntpclientportL=0;
 // listen port for tcp/www (max range 1-254)
 #define MYWWWPORT 80 
 
-#define BUFFER_SIZE 560
+#define BUFFER_SIZE 570
 static uint8_t buf[BUFFER_SIZE+1];
 // this is were we keep time (in unix gmtime format):
 // Note: this value may jump a few seconds when a new ntp answer comes.
@@ -74,16 +74,16 @@ static uint32_t time=0;
 // we do not update LCD from interrupt, we do it when we have time (no ip packet)
 static uint8_t lcd_needs_update=1;  
 // global string buffer
-#define STR_BUFFER_SIZE 24
+#define STR_BUFFER_SIZE 28
 static char strbuf[STR_BUFFER_SIZE+1];
 //
-static char password[10]="secret"; // must be a-z and 0-9
+static char password[10]="secret"; // must be a-z and 0-9, will be cut to 8 char
 
 //
 uint8_t verify_password(char *str)
 {
         // a simple password/cookie:
-        if (strncmp(password,str,6)==0){
+        if (strncmp(password,str,strlen(password))==0){
                 return(1);
         }
         return(0);
@@ -99,7 +99,7 @@ uint8_t find_key_val(char *str,char *key)
         uint8_t i=0;
         char *kp;
         kp=key;
-        while(*str &&  *str!=' ' && found==0){
+        while(*str &&  *str!=' ' && *str!='\n' && found==0){
                 if (*str == *kp){
                         kp++;
                         if (*kp == '\0'){
@@ -116,7 +116,7 @@ uint8_t find_key_val(char *str,char *key)
         }
         if (found==1){
                 // copy the value to a buffer and terminate it with '\0'
-                while(*str &&  *str!=' ' && *str!='&' && i<STR_BUFFER_SIZE){
+                while(*str &&  *str!=' ' && *str!='&' && *str!='\n' && i<STR_BUFFER_SIZE){
                         strbuf[i]=*str;
                         i++;
                         str++;
@@ -328,8 +328,8 @@ uint16_t print_webpage(uint8_t *buf)
 {
         uint16_t plen;
         uint8_t i;
-        plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nPragma: no-cache\r\n\r\n"));
-        plen=fill_tcp_data_p(buf,plen,PSTR("<pre>AVR NTP clock, config\n\nMAC address:  "));
+        plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"));
+        plen=fill_tcp_data_p(buf,plen,PSTR("<pre>NTP clock, config\n\nMAC address:  "));
         mk_net_str(strbuf,mymac,6,':',16);
         plen=fill_tcp_data(buf,plen,strbuf);
         plen=fill_tcp_data_p(buf,plen,PSTR("\n<form action=/config method=get>Clock own IP: <input type=text name=ip value="));
