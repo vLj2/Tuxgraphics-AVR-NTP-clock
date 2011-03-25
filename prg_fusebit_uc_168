@@ -16,9 +16,9 @@ prg="adude"
 # fuse bytes pages 282 and 283
 help()
 {
-	echo "prg_fusebit_uc_88 -- read fuse bits of the atmega88"
+	echo "prg_fusebit_uc_168 -- read fuse bits of the atmega168"
 	echo ""
-	echo "Usage: prg_fusebit_uc_88 [-hu] -r|-w lowfuse"
+	echo "Usage: prg_fusebit_uc_168 [-hu] -r|-w lowfuse"
 	echo ""
 	echo "OPTIONS: -h this help"
 	echo "         -r read fuse bytes"
@@ -30,9 +30,9 @@ help()
 	echo "EXAMPLE: read the fuse bytes"
 	echo "         prg_fusebit_uc -r"
 	echo ""
-	echo "Note: The atmega88 allows you to change clock speeds on the fly in software"
+	echo "Note: The atmega168 allows you to change clock speeds on the fly in software"
 	echo "      This is quite different from atmega8 where it was necessary to modify"
-	echo "      the fuses. With the atmega88 there is actually no good reason why"
+	echo "      the fuses. With the atmega168 there is actually no good reason why"
 	echo "      one should change the default factory settings as long as you use"
 	echo "      the internal osciallator"
 	exit 0
@@ -82,7 +82,7 @@ if [ "$prg" = "adude" ]; then
 	fi
 	if [ "$opt_r" = "1" ];then
 		set -x
-		avrdude -p m88 -c $prg -v -q
+		avrdude -p m168 -c $prg -v -q
 		set +x
 		echo "Explanation: Fuse Low Byte: 0x62 (1MHz intern), 0xe2 (8MHz intern) 0x60 (extern) "
 		echo "             Note that CLKPR will finally influence the clock"
@@ -92,8 +92,8 @@ if [ "$prg" = "adude" ]; then
 	fi
 	if [ "$opt_w" = "1" ]; then
 		set -x
-		avrdude -p m88 -c $prg -u -v -U lfuse:w:$lf:m
-#		avrdude -p m88 -c $prg -u -v -U hfuse:w:$hf:m
+		avrdude -p m168 -c $prg -u -v -U lfuse:w:$lf:m
+#		avrdude -p m168 -c $prg -u -v -U hfuse:w:$hf:m
 		set +x
 		exit 0
 	fi

@@ -78,13 +78,13 @@ uint16_t checksum(uint8_t *buf, uint16_t len,uint8_t type){
         }
         // build the sum of 16bit words
         while(len >1){
-                sum += 0xFFFF & (*buf<<8|*(buf+1));
+                sum += 0xFFFF & (((uint32_t)*buf)<<8|*(buf+1));
                 buf+=2;
                 len-=2;
         }
         // if there is a byte left then add it (padded with zero)
         if (len){
-                sum += (0xFF & *buf)<<8;
+                sum += ((uint32_t)(0xFF & *buf))<<8;
         }
         // now calculate the sum over the bytes in the sum
         // until the result is only 16bit long
@@ -376,7 +376,7 @@ uint16_t get_tcp_data_pointer(void)
 // do some basic length calculations and store the result in static varibales
 void init_len_info(uint8_t *buf)
 {
-        info_data_len=(buf[IP_TOTLEN_H_P]<<8)|(buf[IP_TOTLEN_L_P]&0xff);
+        info_data_len=(((int16_t)buf[IP_TOTLEN_H_P])<<8)|(buf[IP_TOTLEN_L_P]&0xff);
         info_data_len-=IP_HEADER_LEN;
         info_hdr_len=(buf[TCP_HEADER_LEN_P]>>4)*4; // generate len in bytes;
         info_data_len-=info_hdr_len;

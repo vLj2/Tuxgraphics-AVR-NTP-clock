@@ -326,7 +326,7 @@ uint16_t enc28j60PacketReceive(uint16_t maxlen, uint8_t* packet)
         len-=4; //remove the CRC count
 	// read the receive status (see datasheet page 43)
 	rxstat  = enc28j60ReadOp(ENC28J60_READ_BUF_MEM, 0);
-	rxstat |= enc28j60ReadOp(ENC28J60_READ_BUF_MEM, 0)<<8;
+	rxstat |= ((uint16_t)enc28j60ReadOp(ENC28J60_READ_BUF_MEM, 0))<<8;
 	// limit retrieve length
         if (len>maxlen-1){
                 len=maxlen-1;

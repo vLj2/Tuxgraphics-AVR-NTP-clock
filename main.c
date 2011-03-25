@@ -32,7 +32,7 @@
 // please modify the following two lines. mac and ip have to be unique
 // in your local area network. You can not have the same numbers in
 // two devices:
-static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x29};
+static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
 // how did I get the mac addr? Translate the first 3 numbers into ascii is: TUX
 static uint8_t myip[4] = {10,0,0,28};
 // if you have a NTP server in the local lan (=no GW) then set gwip to the same value
@@ -72,10 +72,10 @@ static uint32_t time=0;
 // we do not update LCD from interrupt, we do it when we have time (no ip packet)
 static uint8_t lcd_needs_update=1;  
 // global string buffer
-#define STR_BUFFER_SIZE 18
+#define STR_BUFFER_SIZE 24
 static char strbuf[STR_BUFFER_SIZE+1];
 //
-static char password[8]="secret"; // must be a-z and 0-9
+static char password[10]="secret"; // must be a-z and 0-9
 
 //
 uint8_t verify_password(char *str)
@@ -301,8 +301,8 @@ int8_t analyse_get_url(char *str)
         }
         if (find_key_val(str,"np")){
                 urldecode(strbuf);
-                strncpy(password,strbuf,7);
-                password[7]='\0';
+                strncpy(password,strbuf,8);
+                password[8]='\0';
         }
         // store in eeprom:
         eeprom_write_byte((uint8_t *)0x0,19); // magic number
@@ -633,7 +633,7 @@ int main(void){
                                                 }
                                                 plen=fill_tcp_data_p(buf,plen,PSTR("</pre>\n<br><a href=\"./\">refresh</a>\n"));
                                         }else{
-                                                plen=fill_tcp_data_p(buf,plen,PSTR("Waiting for NTP answer..."));
+                                                plen=fill_tcp_data_p(buf,plen,PSTR("Waiting for NTP answer...<br><a href=\"./\">refresh</a>"));
                                         }
                                         goto SENDTCP;
                                 }
@@ -650,7 +650,7 @@ int main(void){
                                 }
                                 if (i==2){
                                         plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"));
-                                        plen=fill_tcp_data_p(buf,plen,PSTR("<p>OK, values updated.</p>\n"));
+                                        plen=fill_tcp_data_p(buf,plen,PSTR("<p>OK, values updated.<br><a href=\"/\">continue</a></p>\n"));
 
                                 }
 SENDTCP:
