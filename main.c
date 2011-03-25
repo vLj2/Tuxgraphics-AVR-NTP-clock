@@ -5,45 +5,47 @@
  * Copyright: GPL V2
  * See http://www.gnu.org/licenses/gpl.html
  *
- * NTP clock (standalone ntp client) with web interface for configuration of the clock
- * Chip type           : Atmega168 with ENC28J60
- * Note: there is a version number in the text. Search for tuxgraphics
+ * Chip type           : Atmega168 or Atmega328 with ENC28J60
  *********************************************/
 #include <avr/io.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
 #include <avr/interrupt.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <string.h>
 #include <avr/pgmspace.h>
 #include <avr/eeprom.h>
 #include "ip_arp_udp_tcp.h"
+#include "websrv_help_functions.h"
 #include "enc28j60.h"
 #include "timeout.h"
-#include "avr_compat.h"
 #include "net.h"
-#include "timeconversions.h"
 #include "lcd.h"
+#include "timeconversions.h"
 
-/* set output to Vcc, LED off */
-#define LEDOFF PORTB|=(1<<PORTB1)
-/* set output to GND, red LED on */
-#define LEDON PORTB&=~(1<<PORTB1);
-// --------------- modify start
-// please modify the following two lines. mac and ip have to be unique
+// Note: This software implements a NTP clock with LCD display and 
+// built-in web server.
+// The web server is at "myip" and the NTP client tries to access "ntpip".
+// 
+// Please modify the following lines. mac and ip have to be unique
 // in your local area network. You can not have the same numbers in
 // two devices:
 static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
 // how did I get the mac addr? Translate the first 3 numbers into ascii is: TUX
 static uint8_t myip[4] = {10,0,0,28};
-// if you have a NTP server in the local lan (=no GW) then set gwip to the same value
-// as ntpip:
+// Default gateway. The ip address of your DSL router. It can be set to the same as
+// msrvip the case where there is no default GW to access the 
+// web server (=web server is on the same lan as this host) 
 static uint8_t gwip[4] = {10,0,0,2};
-// change summer/winter time and your timezone here (utc +1 is Germany, France etc... in winter), unit is hours times 10:
-//int8_t hours_offset_to_utc=10;  // 20 means 2.0 hours = 2 hours
-// US/Canada eastern time in summer:
-int8_t hours_offset_to_utc=-40;  
 //
-// --------------- modify stop
+// change summer/winter time and your timezone here (utc -1 is Germany, France etc... in winter), unit is hours times 10:
+//int8_t hours_offset_to_utc=-10;  // -20 means -2.0 hours = -2 hours
+// US/Canada eastern time in summer (+4 hours):
+int16_t hours_offset_to_utc=40;
+//
+// listen port for tcp/www:
+#define MYWWWPORT 80
+//
+// --------------- normally you don't change anything below this line
 // time.apple.com (any of 17.254.0.31, 17.254.0.26, 17.254.0.27, 17.254.0.28):
 static uint8_t ntpip[4] = {17,254,0,31};
 // timeserver.rwth-aachen.de
@@ -51,93 +53,47 @@ static uint8_t ntpip[4] = {17,254,0,31};
 // time.nrc.ca
 //static uint8_t ntpip[4] = {132,246,168,148};
 //
-// list of other servers: 
-// ntp1.curie.fr  193.49.205.19
-// ntp3.curie.fr  193.49.205.18
+// list of other servers:
 // tick.utoronto.ca 128.100.56.135
 // ntp.nasa.gov 198.123.30.132
 // timekeeper.isi.edu 128.9.176.30
-// tick.mit.edu 18.145.0.30
 //
-static uint8_t ledstate=0;
-static uint8_t ntpclientportL=0;
-// listen port for tcp/www (max range 1-254)
-#define MYWWWPORT 80 
+// -------- never change anything below this line ---------
+// global string buffer
+#define STR_BUFFER_SIZE 15
+static char gStrbuf[STR_BUFFER_SIZE+1];
+static uint16_t gPlen;
 
-#define BUFFER_SIZE 570
-static uint8_t buf[BUFFER_SIZE+1];
+static uint8_t ntpclientportL=0; // lower 8 bytes of local port number
+static uint8_t prev_minutes=99; // inititlaize to something that does not exist
+static uint8_t haveNTPanswer=0; // 0=never sent an ntp req, 1=have time, 2=reqest sent no answer yet
+static char lindicator='/'; // link indicator on the right
+static uint8_t send_ntp_req_from_idle_loop=1;
+static uint8_t update_at_58_was_requested=0;
 // this is were we keep time (in unix gmtime format):
 // Note: this value may jump a few seconds when a new ntp answer comes.
 // You need to keep this in mid if you build an alarm clock. Do not match
 // on "==" use ">=" and set a state that indicates if you already triggered the alarm.
 static uint32_t time=0;
-// we do not update LCD from interrupt, we do it when we have time (no ip packet)
-static uint8_t lcd_needs_update=1;  
-// global string buffer
-#define STR_BUFFER_SIZE 28
-static char strbuf[STR_BUFFER_SIZE+1];
-//
-static char password[10]="secret"; // must be a-z and 0-9, will be cut to 8 char
+static uint8_t lcd_needs_update=0;
+// eth/ip buffer:
+#define BUFFER_SIZE 600
+static uint8_t buf[BUFFER_SIZE+1];
 
+// set output to VCC, red LED off
+#define LEDOFF PORTB|=(1<<PORTB1)
+// set output to GND, red LED on
+#define LEDON PORTB&=~(1<<PORTB1)
+// to test the state of the LED
+#define LEDISOFF PORTB&(1<<PORTB1)
+// 
+static char password[10]="secret"; // must be a-z and 0-9, will be cut to 8 char
 //
 uint8_t verify_password(char *str)
 {
         // a simple password/cookie:
         if (strncmp(password,str,strlen(password))==0){
                 return(1);
-        }
-        return(0);
-}
-
-// search for a string of the form key=value in
-// a string that looks like q?xyz=abc&uvw=defgh HTTP/1.1\r\n
-//
-// The returned value is stored in the global var strbuf
-uint8_t find_key_val(char *str,char *key)
-{
-        uint8_t found=0;
-        uint8_t i=0;
-        char *kp;
-        kp=key;
-        while(*str &&  *str!=' ' && *str!='\n' && found==0){
-                if (*str == *kp){
-                        kp++;
-                        if (*kp == '\0'){
-                                str++;
-                                kp=key;
-                                if (*str == '='){
-                                        found=1;
-                                }
-                        }
-                }else{
-                        kp=key;
-                }
-                str++;
-        }
-        if (found==1){
-                // copy the value to a buffer and terminate it with '\0'
-                while(*str &&  *str!=' ' && *str!='&' && *str!='\n' && i<STR_BUFFER_SIZE){
-                        strbuf[i]=*str;
-                        i++;
-                        str++;
-                }
-                strbuf[i]='\0';
-        }
-        // return the length of the value
-        return(i);
-}
-
-// convert a single hex digit character to its integer value
-unsigned char h2int(char c)
-{
-        if (c >= '0' && c <='9'){
-                return((unsigned char)c - '0');
-        }
-        if (c >= 'a' && c <='f'){
-                return((unsigned char)c - 'a' + 10);
-        }
-        if (c >= 'A' && c <='F'){
-                return((unsigned char)c - 'A' + 10);
         }
         return(0);
 }
@@ -188,182 +144,237 @@ void deldot(char *s)
         *dst = '\0';
 }
 
-// decode a url string e.g "hello%20joe" or "hello+joe" becomes "hello joe" 
-void urldecode(char *urlbuf)
+
+uint16_t http200ok(void)
 {
-        char c;
-        char *dst;
-        dst=urlbuf;
-        while ((c = *urlbuf)) {
-                if (c == '+') c = ' ';
-                if (c == '%') {
-                        urlbuf++;
-                        c = *urlbuf;
-                        urlbuf++;
-                        c = (h2int(c) << 4) | h2int(*urlbuf);
-                }
-                *dst = c;
-                dst++;
-                urlbuf++;
-        }
-        *dst = '\0';
+        return(fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nPragma: no-cache\r\n\r\n")));
 }
 
-// take string in dot-ed notation and make a binary IP addr array
-void str2ip(uint8_t *resultip,char *str)
+uint16_t http200okjs(void)
 {
-        uint8_t i=0;
-        uint8_t ip[4];
-        char *strptr;
-        while(*str && i <4){
-                // set to first digit (clean leading garbabge:
-                while(!isdigit(*str) && *str){
-                        str++;
-                }
-                strptr=str;
-                while(isdigit(*str) && *str){
-                        str++;
-                }
-                if (*str){
-                        // terminate string unless we are at the end
-                        // generally we will replace the dot with a \0
-                        *str='\0'; 
-                        str++;
-                }
-                ip[i]=atoi(strptr);
-                i++;
-        }
-        if (i==4){
-                // result ok, copy
-                i=0;
-                while(i<4){
-                        resultip[i]=ip[i];
-                        i++;
-                }
-        }
+        return(fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: application/x-javascript\r\n\r\n")));
 }
 
-// take a byte string and convert it to a human readable display string  (base is 10 for ip and 16 for mac addr), len is 4 for IP addr and 6 for mac.
-void mk_net_str(char *resultstr,uint8_t *bytestr,uint8_t len,char separator,uint8_t base)
+// t1.js
+uint16_t print_t1js(void)
 {
-        uint8_t i=0;
-        uint8_t j=0;
-        while(i<len){
-                itoa((int)bytestr[i],&resultstr[j],base);
-                // search end of str:
-                while(resultstr[j]){j++;}
-                resultstr[j]=separator;
-                j++;
-                i++;
-        }
-        j--;
-        resultstr[j]='\0';
+        uint16_t plen;
+        plen=http200okjs();
+        // show this computers TZ offset
+        plen=fill_tcp_data_p(buf,plen,PSTR("\
+function tzi(){\n\
+var t = new Date();\n\
+document.write(\" [Info: The TZ diff to UTC on your PC is: \"+ t.getTimezoneOffset()/60 +\"]\");\n\
+}\n\
+"));
+        return(plen);
 }
 
-
-// takes a string of the form password/commandNumber and analyse it
-// return values: -1 invalid password, or invalid page
-//                 1 just display current settings (no password was given)
-//                 2 values upated
-int8_t analyse_get_url(char *str)
+uint16_t print_webpage_ok(void)
 {
-        int16_t j;
-        // not the config page? return error
-        if (strncmp("config",str,6)!=0){
-                return(-1);
-        }
-        if (find_key_val(str,"fd")){
-                if (find_key_val(str,"pw")){
-                        urldecode(strbuf);
-                        if (verify_password(strbuf)==0){
-                                return(-1);
-                        }
-                }else{
-                        return(-1);
-                }
-        }else{
-                // no pw found just display values
-                return(1);
-        }
-        // pw is OK now store the values.
-        if (find_key_val(str,"ip")){
-                str2ip(myip,strbuf);
-        }
-        if (find_key_val(str,"gw")){
-                str2ip(gwip,strbuf);
-        }
-        if (find_key_val(str,"ns")){
-                str2ip(ntpip,strbuf);
-        }
-        if (find_key_val(str,"tz")){
-                urldecode(strbuf);
-                deldot(strbuf);
-                j=atoi(strbuf);
-                if (j> -140 && j < 140){
-                        hours_offset_to_utc=j;
-                }
-        }
-        if (find_key_val(str,"np")){
-                urldecode(strbuf);
-                strncpy(password,strbuf,8);
-                password[8]='\0';
-        }
-        // store in eeprom:
-        eeprom_write_byte((uint8_t *)0x0,19); // magic number
-        eeprom_write_block((uint8_t *)myip,(void *)1,sizeof(myip));
-        eeprom_write_block((uint8_t *)gwip,(void *)6,sizeof(gwip));
-        eeprom_write_block((uint8_t *)ntpip,(void *)11,sizeof(ntpip));
-        eeprom_write_byte((uint8_t *)16,hours_offset_to_utc);
-        eeprom_write_block((char *)password,(void *)19,sizeof(password));
-
-        return(2);
+        return(fill_tcp_data_p(buf,http200ok(),PSTR("<a href=/>OK</a>. Please power-cycle after IP-addr. change")));
 }
-
 
 // prepare the webpage by writing the data to the tcp send buffer
 // Note that this is about as much as you can put on a html page.
 // If you plan to build additional functions into this clock (e.g alarm clock) then
 // add a new page under /alarm and do not expand this /config page.
-uint16_t print_webpage(uint8_t *buf)
+uint16_t print_webpage_config(void)
 {
         uint16_t plen;
         uint8_t i;
-        plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"));
-        plen=fill_tcp_data_p(buf,plen,PSTR("<pre>NTP clock, config\n\nMAC address:  "));
-        mk_net_str(strbuf,mymac,6,':',16);
-        plen=fill_tcp_data(buf,plen,strbuf);
-        plen=fill_tcp_data_p(buf,plen,PSTR("\n<form action=/config method=get>Clock own IP: <input type=text name=ip value="));
-        mk_net_str(strbuf,myip,4,'.',10);
-        plen=fill_tcp_data(buf,plen,strbuf);
-        plen=fill_tcp_data_p(buf,plen,PSTR(">\nDefault GW IP:<input type=text name=gw value="));
-        mk_net_str(strbuf,gwip,4,'.',10);
-        plen=fill_tcp_data(buf,plen,strbuf);
-        plen=fill_tcp_data_p(buf,plen,PSTR(">\nNTP server IP:<input type=text name=ns value="));
-        mk_net_str(strbuf,ntpip,4,'.',10);
-        plen=fill_tcp_data(buf,plen,strbuf);
-        plen=fill_tcp_data_p(buf,plen,PSTR(">\nOffset to UTC:<input type=text name=tz value="));
+        plen=http200ok();
+        plen=fill_tcp_data_p(buf,plen,PSTR("<script src=t1.js></script>"));
+        plen=fill_tcp_data_p(buf,plen,PSTR("<h2>clock config</h2><pre>MAC addr: "));
+        mk_net_str(gStrbuf,mymac,6,':',16);
+        plen=fill_tcp_data(buf,plen,gStrbuf);
+        plen=fill_tcp_data_p(buf,plen,PSTR("\n<form action=/cu method=get>Clock IP  :<input type=text name=ip value="));
+        mk_net_str(gStrbuf,myip,4,'.',10);
+        plen=fill_tcp_data(buf,plen,gStrbuf);
+        plen=fill_tcp_data_p(buf,plen,PSTR(">\nDefault GW:<input type=text name=gw value="));
+        mk_net_str(gStrbuf,gwip,4,'.',10);
+        plen=fill_tcp_data(buf,plen,gStrbuf);
+        plen=fill_tcp_data_p(buf,plen,PSTR(">\nNTP srv IP:<input type=text name=ns value="));
+        mk_net_str(gStrbuf,ntpip,4,'.',10);
+        plen=fill_tcp_data(buf,plen,gStrbuf);
+        plen=fill_tcp_data_p(buf,plen,PSTR(">\nUTC offset:<input type=text name=tz value="));
         i=0;
         if (hours_offset_to_utc>=0){
-                strbuf[i]='+';
+                gStrbuf[i]='+';
                 i++;
         }
-        itoa(hours_offset_to_utc,&(strbuf[i]),10);
-        adddotifneeded(&(strbuf[i]));
-        plen=fill_tcp_data(buf,plen,strbuf);
-        plen=fill_tcp_data_p(buf,plen,PSTR(">\nNew password: <input type=text name=np>\n\nPassword:     <input type=password name=pw><input type=hidden name=fd value=1>\n<input type=submit value=apply></form>\n"));
+        itoa(hours_offset_to_utc,&(gStrbuf[i]),10);
+        adddotifneeded(&(gStrbuf[i]));
+        plen=fill_tcp_data(buf,plen,gStrbuf);
+        plen=fill_tcp_data_p(buf,plen,PSTR("><script>tzi()</script>\n"));
+        plen=fill_tcp_data_p(buf,plen,PSTR("New passwd:<input type=text name=np>\n\nPasswd:    <input type=password name=pw>\n<input type=submit value=apply></form>\n"));
         return(plen);
+}
+
+// prepare the main webpage by writing the data to the tcp send buffer
+uint16_t print_webpage(void)
+{
+        uint16_t plen;
+        char day[16];
+        char clock[16];
+        plen=http200ok();
+        plen=fill_tcp_data_p(buf,plen,PSTR("<h2>NTP clock</h2><pre>\n"));
+        if (haveNTPanswer){ // 1 or 2
+                gmtime(time+(int32_t)-360*(int32_t)hours_offset_to_utc,day,clock);
+                plen=fill_tcp_data(buf,plen,day);
+                plen=fill_tcp_data(buf,plen,"\n");
+                plen=fill_tcp_data(buf,plen,clock);
+                plen=fill_tcp_data_p(buf,plen,PSTR(" (UTC "));
+                if (hours_offset_to_utc>=0){
+                        plen=fill_tcp_data(buf,plen,"+");
+                }
+                itoa(hours_offset_to_utc,gStrbuf,10);
+                adddotifneeded(gStrbuf);
+                plen=fill_tcp_data(buf,plen,gStrbuf);
+                plen=fill_tcp_data_p(buf,plen,PSTR(")\n"));
+                if (haveNTPanswer>1){
+                        plen=fill_tcp_data_p(buf,plen,PSTR("Last ntp sync is older than 1 hour\n"));
+                }
+                plen=fill_tcp_data_p(buf,plen,PSTR("</pre><br><a href=\"./\">[refresh]</a>\n"));
+        }else{
+                plen=fill_tcp_data_p(buf,plen,PSTR("Waiting for NTP answer...<br><a href=\"./\">[refresh]</a>"));
+        }
+        return(plen);
+}
+
+// analyse the url given
+// return values: are used to show different pages (see main program)
+//
+int8_t analyse_get_url(char *str)
+{
+        uint8_t updateerr=0;
+        int16_t i;
+        // the first slash:
+        if (str[0] == '/' && str[1] == ' '){
+                // end of url, display just the web page
+                return(0);
+        }
+        if (strncmp("/t1.js",str,6)==0){
+                gPlen=print_t1js();
+                return(10);
+        }
+        if (strncmp("/config",str,7)==0){
+                gPlen=print_webpage_config();
+                return(10);
+        }
+        if (strncmp("/cu?",str,4)==0){
+                if (find_key_val(str,gStrbuf,STR_BUFFER_SIZE,"pw")){
+                        urldecode(gStrbuf);
+                        if (verify_password(gStrbuf)){
+                                if (find_key_val(str,gStrbuf,STR_BUFFER_SIZE,"ip")){
+                                        urldecode(gStrbuf);
+                                        if (parse_ip(myip,gStrbuf)!=0){
+                                                updateerr=1;
+                                        }
+                                }
+                                if (find_key_val(str,gStrbuf,STR_BUFFER_SIZE,"ns")){
+                                        urldecode(gStrbuf);
+                                        if (parse_ip(ntpip,gStrbuf)!=0){
+                                                updateerr=1;
+                                        }
+                                }
+                                if (find_key_val(str,gStrbuf,STR_BUFFER_SIZE,"gw")){
+                                        urldecode(gStrbuf);
+                                        if (parse_ip(gwip,gStrbuf)!=0){
+                                                updateerr=1;
+                                        }
+                                }
+                                if (find_key_val(str,gStrbuf,STR_BUFFER_SIZE,"tz")){
+                                        urldecode(gStrbuf);
+                                        deldot(gStrbuf);
+                                        i=atoi(gStrbuf);
+                                        if (i> -140 && i < 140){
+                                                hours_offset_to_utc=i;
+                                        }else{
+                                                updateerr=1;
+                                        }
+                                }
+                                if (find_key_val(str,gStrbuf,STR_BUFFER_SIZE,"np")){
+                                        urldecode(gStrbuf);
+                                        strncpy(password,gStrbuf,8);
+                                        password[8]='\0';
+                                }
+                                // parse_ip does store also partially
+                                // wrong values if it returns an error
+                                // but it is still better to inform the user
+                                if (updateerr){
+                                        gPlen=fill_tcp_data_p(buf,http200ok(),PSTR("<a href=/config>Error</a>"));
+                                        return(10);
+                                }
+                                // store in eeprom:
+                                eeprom_write_byte((uint8_t *)0x0,19); // magic number
+                                eeprom_write_block((uint8_t *)myip,(void *)1,sizeof(myip));
+                                eeprom_write_block((uint8_t *)gwip,(void *)6,sizeof(gwip));
+                                eeprom_write_block((uint8_t *)ntpip,(void *)11,sizeof(ntpip));
+                                eeprom_write_byte((uint8_t *)16,hours_offset_to_utc);
+                                eeprom_write_block((char *)password,(void *)19,sizeof(password));
+                                prev_minutes=99; // refresh the full display
+                                }
+                                return(1);
+                        }
+        }
+        return(-1); // Unauthorized
+}
+
+void print_time_to_lcd(void)
+{
+        char day[16];
+        char clock[16];
+        uint8_t minutes;
+
+        // returns day and time-string in seperate variables:
+        minutes=gmtime(time+(int32_t)-360*(int32_t)hours_offset_to_utc,day,clock);
+        if (prev_minutes!=minutes){
+                // update complete display including day
+                lcd_clrscr();
+                lcd_gotoxy(0,1);
+                lcd_puts(day);
+                // update complete display
+        }
+        // write first line
+        lcd_gotoxy(0,0);
+        lcd_puts(clock);
+        lcd_puts_P(" (");
+        if (hours_offset_to_utc>=0){
+                lcd_puts_P("+");
+        }
+        itoa(hours_offset_to_utc,gStrbuf,10);
+        adddotifneeded(gStrbuf);
+        lcd_puts(gStrbuf);
+        lcd_puts_P(")"); 
+        // write to first line
+        lcd_gotoxy(15,0);
+        lcd_putc(lindicator);
+        prev_minutes=minutes;
+        // before every hour
+        if (minutes==58 && update_at_58_was_requested==0){  
+                // mark that we will wait for new
+                // ntp update
+                haveNTPanswer=2;
+                send_ntp_req_from_idle_loop=1;
+                update_at_58_was_requested=1;
+        }
+        // we need this update_at_58_was_requested variable
+        // otherwise we will send every second an ntp request
+        // in that minute
+        if (minutes<58){
+                update_at_58_was_requested=0;
+        }
 }
 
 // interrupt, step seconds counter
 ISR(TIMER1_COMPA_vect){
         time++;
         lcd_needs_update++;
-        if (ledstate){
-                ledstate=0;
-                LEDOFF;
-        }else{
-                ledstate=1;
+        if (LEDISOFF){
                 LEDON;
+        }else{
+                LEDOFF;
         }
 }
 
@@ -396,43 +407,38 @@ void clock_init(void)
 }
 
 int main(void){
-
-        
-        uint16_t plen;
-        uint16_t dat_p;
-        uint8_t haveGWip=0;
-        uint8_t haveNTPanswer=0; // 0 no initial ntp answer, 1= have answer, 2,3=sent new reqest
-        uint8_t minutes=0;
-        uint8_t prev_minutes=99; // initial value must be someting higher than 59
-        int8_t i;
-        char day[22];
-        char clock[22];
-        char tzstr[4];
-        char lindicator='/'; // link indicator on the right
-        
+        int8_t cmd;
+        uint16_t pktlen;
         // set the clock speed to "no pre-scaler" (8MHz with internal osc or 
         // full external speed)
         // set the clock prescaler. First write CLKPCE to enable setting of clock the
         // next four instructions.
         CLKPR=(1<<CLKPCE); // change enable
         CLKPR=0; // "no pre-scaler"
-        _delay_loop_1(50); // 12ms
+        _delay_loop_1(0); // 60us
 
-        /* enable PD2/INT0, as input */
-        DDRD&= ~(1<<DDD2);
-
-        // enable PB0, as input, tuxgraphics IP autoconfig 
+        // enable PB0, as input, config reset
         DDRB&= ~(1<<DDB0);
         PORTB|= (1<<PINB0); // internal pullup resistor on, jumper goes to ground
-
         /*initialize enc28j60*/
         enc28j60Init(mymac);
         enc28j60clkout(2); // change clkout from 6.25MHz to 12.5MHz
-        _delay_loop_1(50); // 12ms
+        _delay_loop_1(0); // 60us
         
-        // LED
-        /* enable PB1, LED as output */
-        DDRB|= (1<<DDB1);
+        // lcd display:
+        lcd_init(LCD_DISP_ON);
+        lcd_clrscr();
+
+        clock_init();
+
+        /* Magjack leds configuration, see enc28j60 datasheet, page 11 */
+        // LEDB=yellow LEDA=green
+        //
+        // 0x476 is PHLCON LEDA=links status, LEDB=receive/transmit
+        // enc28j60PhyWrite(PHLCON,0b0000 0100 0111 01 10);
+        enc28j60PhyWrite(PHLCON,0x476);
+        
+        DDRB|= (1<<DDB1); // LED, enable PB1, LED as output
         LEDOFF;
 
         // read eeprom values unless there is a jumper between PB0 and GND:
@@ -448,245 +454,90 @@ int main(void){
                 }
         }
         
-        /* Magjack leds configuration, see enc28j60 datasheet, page 11 */
-        // LEDB=yellow LEDA=green
-        //
-        // 0x476 is PHLCON LEDA=links status, LEDB=receive/transmit
-        // enc28j60PhyWrite(PHLCON,0b0000 0100 0111 01 10);
-        enc28j60PhyWrite(PHLCON,0x476);
-        _delay_loop_1(50); // 12ms
-        // lcd display:
-        lcd_init(LCD_DISP_ON);
-        lcd_clrscr();
-        
-
-        //init the ethernet/ip layer:
+        //init the web server ethernet/ip layer:
         init_ip_arp_udp_tcp(mymac,myip,MYWWWPORT);
-        
-        clock_init();
-        lcd_puts_P("OK");
-
-        // just use variable haveGWip as a loop counter here to save memory
-        while(haveGWip<15){
-                if (enc28j60linkup()){
-                        haveGWip=99;
-                }
-                i=0;
-                while(i<10){
-                        _delay_loop_1(150); // 36ms
-                        i++;
-                }
-                haveGWip++;
-        }
-        haveGWip=0;
-
+        // init the web client:
+        client_set_gwip(gwip);  // e.g internal IP of dsl router
+        lcd_clrscr();
+        lcd_puts_P("waiting for");
+        lcd_gotoxy(0,1);
+        lcd_puts_P("GW IP");
+        //
         sei(); // interrupt on
-
+        //
         while(1){
-                // get the next new packet:
-                plen = enc28j60PacketReceive(BUFFER_SIZE, buf);
-
-                /*plen will ne unequal to zero if there is a valid 
-                 * packet (without crc error) */
-                if(plen==0){
-                        // update the lcd display periodically when there is
-                        // nothing else to do
-                        if (lcd_needs_update){
-                                if (enc28j60linkup()){
-                                        lindicator=' ';
-                                        if (haveNTPanswer>=2){
-                                                // have link but no up-to date ntp answer
-                                                lindicator='|';
-                                        }
-                                        if (lcd_needs_update >3){ // 3 seconds
-                                                if (haveGWip==0){
-                                                        lcd_clrscr();
-                                                        lcd_puts_P("waiting for");
-                                                        lcd_gotoxy(0,1);
-                                                        lcd_puts_P("GW IP");
-                                                        lcd_needs_update=0;
-                                                        client_arp_whohas(buf,gwip);
-                                                        continue;
-                                                }
-                                                if (haveNTPanswer==0){
-                                                        lcd_clrscr();
-                                                        lcd_puts_P("waiting for");
-                                                        lcd_gotoxy(0,1);
-                                                        lcd_puts_P("NTP answer");
-                                                        lcd_needs_update=0;
-                                                        ntpclientportL++;
-                                                        client_ntp_request(buf,ntpip,ntpclientportL);
-                                                        continue;
-                                                }
-                                        }
-                                }else{
-                                        lindicator='/';
-                                        if (haveGWip==0){
-                                                lcd_clrscr();
-                                                lcd_puts_P("Eth-link down");
-                                                lcd_needs_update=0;
-                                                continue;
-                                        }
-                                }
-                                // link up or link down
-                                if (haveNTPanswer>0){
-                                        minutes=gmtime(time+(int32_t)360*(int32_t)hours_offset_to_utc,day,clock);
-                                        if (prev_minutes!=minutes){
-                                                // update complete display
-                                                lcd_clrscr();
-                                                lcd_puts(day);
-                                        }
-                                        lcd_gotoxy(0,1);
-                                        lcd_puts(clock);
-                                        if (prev_minutes!=minutes){
-                                                // update complete display
-                                                lcd_puts_P(" (");
-                                                if (hours_offset_to_utc>=0){
-                                                        lcd_puts_P("+");
-                                                }
-                                                itoa(hours_offset_to_utc,tzstr,10);
-                                                adddotifneeded(tzstr);
-                                                lcd_puts(tzstr);
-                                                lcd_puts_P(")"); 
-                                        }
-                                        // write to first line
-                                        lcd_gotoxy(15,0);
-                                        lcd_putc(lindicator);
-                                        // before every hour
-                                        if (minutes==58){  
-                                                // mark that we will wait for new
-                                                // ntp update
-                                                haveNTPanswer=2;
-                                        }
-                                        if (minutes==59 && haveNTPanswer==2){ 
-                                                if (lindicator!='/'){
-                                                        ntpclientportL++;
-                                                        client_ntp_request(buf,ntpip,ntpclientportL);
-                                                }
-                                                // ask only once in the 59th minute:
-                                                haveNTPanswer=3;
-                                        }
-                                        prev_minutes=minutes;
-                                        lcd_needs_update=0;
-                                }
-                        }
-                        continue;
+                pktlen=enc28j60PacketReceive(BUFFER_SIZE, buf);
+                // handle ping and wait for a tcp packet
+                gPlen=packetloop_icmp_tcp(buf,pktlen);
+                if(gPlen==0){
+                        goto UDP;
                 }
                         
-                // arp is broadcast if unknown but a host may also
-                // verify the mac address by sending it to 
-                // a unicast address.
-                if(eth_type_is_arp_and_my_ip(buf,plen)){
-                        if (eth_type_is_arp_req(buf)){
-                                make_arp_answer_from_request(buf);
-                        }
-                        if (eth_type_is_arp_reply(buf)){
-                                if (client_store_gw_mac(buf,gwip)){
-                                        haveGWip=1;
-                                }
-                        }
-                        continue;
+                if (strncmp("GET ",(char *)&(buf[gPlen]),4)!=0){
+                        // head, post and other methods:
+                        //
+                        // for possible status codes see:
+                        // http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html
+                        gPlen=http200ok();
+                        gPlen=fill_tcp_data_p(buf,gPlen,PSTR("<h1>200 OK</h1>"));
+                        goto SENDTCP;
                 }
-
-                // check if ip packets are for us:
-                if(eth_type_is_ip_and_my_ip(buf,plen)==0){
-                        continue;
+                cmd=analyse_get_url((char *)&(buf[gPlen+4]));
+                // for possible status codes see:
+                // http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html
+                if (cmd==-1){
+                        gPlen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 401 Unauthorized\r\nContent-Type: text/html\r\n\r\n<h1>401 Unauthorized</h1>"));
+                        goto SENDTCP;
                 }
-                // led----------
-                if(buf[IP_PROTO_P]==IP_PROTO_ICMP_V && buf[ICMP_TYPE_P]==ICMP_TYPE_ECHOREQUEST_V){
-                        // a ping packet, let's send pong
-                        make_echo_reply_from_request(buf,plen);
-                        continue;
+                if (cmd==1){
+                        gPlen=print_webpage_ok();
+                        goto SENDTCP;
                 }
-                // tcp port www start, compare only the lower byte
-                if (buf[IP_PROTO_P]==IP_PROTO_TCP_V&&buf[TCP_DST_PORT_H_P]==0&&buf[TCP_DST_PORT_L_P]==MYWWWPORT){
-                        if (buf[TCP_FLAGS_P] & TCP_FLAGS_SYN_V){
-                                make_tcp_synack_from_syn(buf);
-                                // make_tcp_synack_from_syn does already send the syn,ack
-                                continue;
-                        }
-                        if (buf[TCP_FLAGS_P] & TCP_FLAGS_ACK_V){
-                                init_len_info(buf); // init some data structures
-                                // we can possibly have no data, just ack:
-                                dat_p=get_tcp_data_pointer();
-                                i=0;
-                                if (dat_p==0){
-                                        if (buf[TCP_FLAGS_P] & TCP_FLAGS_FIN_V){
-                                                // finack, answer with ack
-                                                make_tcp_ack_from_any(buf);
-                                        }
-                                        // just an ack with no data, wait for next packet
-                                        continue;
-                                }
-                                if (strncmp("GET ",(char *)&(buf[dat_p]),4)!=0){
-                                        // head, post and other methods:
-                                        //
-                                        // for possible status codes see:
-                                        // http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html
-                                        plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<h1>200 OK</h1>"));
-                                        goto SENDTCP;
-                                }
-                                if (strncmp("/ ",(char *)&(buf[dat_p+4]),2)==0){
-                                        plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"));
-                                        plen=fill_tcp_data_p(buf,plen,PSTR("<h2>AVR NTP clock</h2><pre>\n"));
-                                        if (haveNTPanswer){
-                                                gmtime(time+(int32_t)360*(int32_t)hours_offset_to_utc,day,clock);
-                                                plen=fill_tcp_data(buf,plen,day);
-                                                plen=fill_tcp_data(buf,plen,"\n");
-                                                plen=fill_tcp_data(buf,plen,clock);
-                                                plen=fill_tcp_data_p(buf,plen,PSTR(" (UTC "));
-                                                if (hours_offset_to_utc>=0){
-                                                        plen=fill_tcp_data(buf,plen,"+");
-                                                }
-                                                itoa(hours_offset_to_utc,tzstr,10);
-                                                adddotifneeded(tzstr);
-                                                plen=fill_tcp_data(buf,plen,tzstr);
-                                                plen=fill_tcp_data_p(buf,plen,PSTR(")\n"));
-                                                if (haveNTPanswer>1){
-                                                        plen=fill_tcp_data_p(buf,plen,PSTR("\nLast ntp sync is older than 1 hour\n"));
-                                                }
-                                                plen=fill_tcp_data_p(buf,plen,PSTR("</pre>\n<br><a href=\"./\">refresh</a>\n"));
-                                        }else{
-                                                plen=fill_tcp_data_p(buf,plen,PSTR("Waiting for NTP answer...<br><a href=\"./\">refresh</a>"));
-                                        }
-                                        goto SENDTCP;
-                                }
-                                i=analyse_get_url((char *)&(buf[dat_p+5]));
-                                // for possible status codes see:
-                                // http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html
-                                if (i==-1){
-                                        plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 401 Unauthorized\r\nContent-Type: text/html\r\n\r\n<h1>401 Unauthorized</h1>"));
-                                        goto SENDTCP;
-                                }
-                                if (i==1){
-                                        plen=print_webpage(buf);
-                                        goto SENDTCP;
-                                }
-                                if (i==2){
-                                        plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"));
-                                        plen=fill_tcp_data_p(buf,plen,PSTR("<p>OK, values updated.<br><a href=\"/\">continue</a></p>\n"));
-
-                                }
-SENDTCP:
-                                make_tcp_ack_from_any(buf); // send ack for http get
-                                make_tcp_ack_with_data(buf,plen); // send data
-                                if (i==2){
-                                        init_ip_arp_udp_tcp(mymac,myip,MYWWWPORT);
-                                        haveGWip=0;
-                                        haveNTPanswer=0; 
-                                        prev_minutes=99;
-                                        lcd_clrscr();
-                                        lcd_puts_P("updating...");
-                                }
-                                continue;
-                        }
-
+                if (cmd==10){
+                        goto SENDTCP;
                 }
-                // tcp port www end
+                gPlen=print_webpage();
                 //
-                // udp start, src port must be 123 (0x7b):
+SENDTCP:
+                www_server_reply(buf,gPlen); // send data
+                continue;
+                // tcp port www end --- udp start
+UDP:
+                // UDP/NTP protocol handling and idel tasks
+                // check if ip packets are for us:
+                if(eth_type_is_ip_and_my_ip(buf,pktlen)==0){
+                        // we are idle here (no incomming packet to process).
+                        // In other words these are our background tasks:
+                        if (send_ntp_req_from_idle_loop && client_waiting_gw()==0){
+                                LEDON;
+                                ntpclientportL++; // new src port
+                                send_ntp_req_from_idle_loop=0;
+                                client_ntp_request(buf,ntpip,ntpclientportL);
+                                if (haveNTPanswer==0){
+                                        lcd_clrscr();
+                                        lcd_puts_P("waiting for");
+                                        lcd_gotoxy(0,1);
+                                        lcd_puts_P("NTP srv");
+                                }
+                        }
+                        // -- update the LCD
+                        if (haveNTPanswer && lcd_needs_update){
+                                lindicator=' ';
+                                if (haveNTPanswer!=1){
+                                        lindicator='|';
+                                }
+                                if (!enc28j60linkup()){
+                                        lindicator='/';
+                                }
+                                lcd_needs_update=0;
+                                print_time_to_lcd();
+                        }
+                        continue;
+                }
+                // ntp src port must be 123 (0x7b):
                 if (buf[IP_PROTO_P]==IP_PROTO_UDP_V&&buf[UDP_SRC_PORT_H_P]==0&&buf[UDP_SRC_PORT_L_P]==0x7b){
                         if (client_ntp_process_answer(buf,&time,ntpclientportL)){
+                                LEDOFF;
                                 // convert to unix time:
                                 if ((time & 0x80000000UL) ==0){
                                         // 7-Feb-2036 @ 06:28:16 UTC it will wrap:

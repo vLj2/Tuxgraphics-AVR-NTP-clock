@@ -1,142 +1,124 @@
 # makefile, written by guido socher
 MCU=atmega168
 DUDECPUTYPE=m168
-#MCU=atmega88
-#DUDECPUTYPE=m88
 #MCU=atmega328p
-#DUDECPUTYPE=m328
+#DUDECPUTYPE=m328p
+#
+# === Edit this and enter the correct device/com-port:
+# linux (plug in the avrusb500 and type dmesg to see which device it is):
+LOADCMD=avrdude -P /dev/ttyUSB0
+
+# mac (plug in the programer and use ls /dev/tty.usbserial* to get the name):
+#LOADCMD=avrdude -P /dev/tty.usbserial-A9006MOb
+
+# windows (check which com-port you get when you plugin the avrusb500):
+#LOADCMD=avrdude -P COM4
+
+# All operating systems: if you have set the default_serial paramter
+# in your avrdude.conf file correctly then you can just use this
+# and you don't need the above -P option:
+#LOADCMD=avrdude
+# === end edit this
+#
+LOADARG=-p $(DUDECPUTYPE) -c stk500v2 -e -U flash:w:
+#
 CC=avr-gcc
 OBJCOPY=avr-objcopy
 # optimize for size:
-CFLAGS=-g -mmcu=$(MCU) -Wall -Wstrict-prototypes -Os -mcall-prologues
-#
-LOADCMD=avrdude
-LOADARG=-p $(DUDECPUTYPE) -c stk500v2 -e -U flash:w:
-#
+CFLAGS=-g -mmcu=$(MCU) -Wall -W -Os -mcall-prologues
 #-------------------
-.PHONY: test0 test1 test2 all testLCD
+.PHONY: all main
 #
-all: eth_ntp_clock.hex test0.hex test1.hex test2.hex test_readSiliconRev.hex testLCD.hex 
+all: main.hex test_lcd.hex test_basic_ntpclient.hex
+	@echo "done"
 #
-test0: test0.hex
+test_lcd: test_lcd.hex
+	@echo "done"
 #
-testLCD: testLCD.hex
+test_basic_ntpclient: test_basic_ntpclient.hex
+	@echo "done"
 #
-test1: test1.hex 
-#
-test2: test2.hex
+main: main.hex
+	@echo "done"
 #
 #-------------------
 help: 
-	@echo "Usage: make all|testLCD.hex|test0.hex|test1.hex|test2.hex|load|load_testLCD|load_test0|load_test1|load_test2|rdfuses"
+	@echo "Usage: make all|main.hex|test_basic_ntpclient.hex"
+	@echo "or"
+	@echo "make fuse|rdfuses"
+	@echo "or"
+	@echo "make load"
 	@echo "or"
 	@echo "Usage: make clean"
-	@echo "to set the clock source correctly run"
-	@echo "make fuse"
+	@echo " "
+	@echo "You have to set the low fuse byte to 0x60 on all new tuxgraphics boards".
+	@echo "This can be done with the command (linux/mac if you use avrusb500): make fuse"
 #-------------------
-eth_ntp_clock.hex : eth_ntp_clock.out 
-	$(OBJCOPY) -R .eeprom -O ihex eth_ntp_clock.out eth_ntp_clock.hex 
-	avr-size eth_ntp_clock.out
+main.hex: main.elf 
+	$(OBJCOPY) -R .eeprom -O ihex main.elf main.hex 
+	avr-size main.elf
 	@echo " "
 	@echo "Expl.: data=initialized data, bss=uninitialized data, text=code"
 	@echo " "
 
-eth_ntp_clock.out : main.o ip_arp_udp_tcp.o enc28j60.o timeconversions.o lcd.o
-	$(CC) $(CFLAGS) -o eth_ntp_clock.out -Wl,-Map,eth_ntp_clock.map main.o ip_arp_udp_tcp.o enc28j60.o  timeconversions.o lcd.o
-enc28j60.o : enc28j60.c avr_compat.h timeout.h enc28j60.h
+main.elf: main.o ip_arp_udp_tcp.o enc28j60.o websrv_help_functions.o lcd.o timeconversions.o
+	$(CC) $(CFLAGS) -o main.elf -Wl,-Map,main.map main.o ip_arp_udp_tcp.o enc28j60.o websrv_help_functions.o lcd.o timeconversions.o
+websrv_help_functions.o: websrv_help_functions.c websrv_help_functions.h ip_config.h 
+	$(CC) $(CFLAGS) -Os -c websrv_help_functions.c
+enc28j60.o: enc28j60.c timeout.h enc28j60.h
 	$(CC) $(CFLAGS) -Os -c enc28j60.c
-ip_arp_udp_tcp.o : ip_arp_udp_tcp.c net.h avr_compat.h enc28j60.h
+ip_arp_udp_tcp.o: ip_arp_udp_tcp.c net.h enc28j60.h ip_config.h
 	$(CC) $(CFLAGS) -Os -c ip_arp_udp_tcp.c
-main.o : main.c ip_arp_udp_tcp.h avr_compat.h enc28j60.h timeout.h net.h
+main.o: main.c ip_arp_udp_tcp.h enc28j60.h timeout.h net.h websrv_help_functions.h ip_config.h lcd.h timeconversions.h lcd_hw.h
 	$(CC) $(CFLAGS) -Os -c main.c
-timeconversions.o : timeconversions.c timeconversions.h 
+#
+timeconversions.o : timeconversions.c timeconversions.h
 	$(CC) $(CFLAGS) -Os -c timeconversions.c
 lcd.o : lcd.c lcd.h lcd_hw.h
 	$(CC) $(CFLAGS) -Os -c lcd.c
 #------------------
-testLCD.hex : testLCD.out 
-	$(OBJCOPY) -R .eeprom -O ihex testLCD.out testLCD.hex 
-	avr-size testLCD.out
+test_lcd.hex : test_lcd.elf 
+	$(OBJCOPY) -R .eeprom -O ihex test_lcd.elf test_lcd.hex 
+	avr-size test_lcd.elf
 	@echo " "
 	@echo "Expl.: data=initialized data, bss=uninitialized data, text=code"
 	@echo " "
-testLCD.out : testLCD.o lcd.o
-	$(CC) $(CFLAGS) -o testLCD.out -Wl,-Map,testLCD.map testLCD.o lcd.o
-testLCD.o : testLCD.c lcd.h
-	$(CC) $(CFLAGS) -Os -c testLCD.c
+test_lcd.elf : test_lcd.o lcd.o
+	$(CC) $(CFLAGS) -o test_lcd.elf -Wl,-Map,test_lcd.map test_lcd.o lcd.o
+test_lcd.o : test_lcd.c lcd.h
+	$(CC) $(CFLAGS) -Os -c test_lcd.c
 #------------------
-test0.hex : test0.out 
-	$(OBJCOPY) -R .eeprom -O ihex test0.out test0.hex 
-	avr-size test0.out
+test_basic_ntpclient.hex: test_basic_ntpclient.elf 
+	$(OBJCOPY) -R .eeprom -O ihex test_basic_ntpclient.elf test_basic_ntpclient.hex 
+	avr-size test_basic_ntpclient.elf
 	@echo " "
 	@echo "Expl.: data=initialized data, bss=uninitialized data, text=code"
 	@echo " "
-test0.out : test0.o 
-	$(CC) $(CFLAGS) -o test0.out -Wl,-Map,test0.map test0.o 
-test0.o : test0.c 
-	$(CC) $(CFLAGS) -Os -c test0.c
-#------------------
-test2.hex : test2.out 
-	$(OBJCOPY) -R .eeprom -O ihex test2.out test2.hex 
-	avr-size test2.out
-	@echo " "
-	@echo "Expl.: data=initialized data, bss=uninitialized data, text=code"
-	@echo " "
-test2.out : test2.o enc28j60.o ip_arp_udp_tcp.o
-	$(CC) $(CFLAGS) -o test2.out -Wl,-Map,test2.map test2.o enc28j60.o ip_arp_udp_tcp.o
-test2.o : test2.c ip_arp_udp_tcp.h avr_compat.h enc28j60.h timeout.h net.h
-	$(CC) $(CFLAGS) -Os -c test2.c
-#------------------
-test1.hex : test1.out 
-	$(OBJCOPY) -R .eeprom -O ihex test1.out test1.hex 
-	avr-size test1.out
-	@echo " "
-	@echo "Expl.: data=initialized data, bss=uninitialized data, text=code"
-	@echo " "
-test1.out : test1.o enc28j60.o ip_arp_udp_tcp.o
-	$(CC) $(CFLAGS) -o test1.out -Wl,-Map,test1.map test1.o enc28j60.o ip_arp_udp_tcp.o
-test1.o : test1.c ip_arp_udp_tcp.h avr_compat.h enc28j60.h timeout.h net.h
-	$(CC) $(CFLAGS) -Os -c test1.c
-#------------------
-test_readSiliconRev.hex : test_readSiliconRev.out 
-	$(OBJCOPY) -R .eeprom -O ihex test_readSiliconRev.out test_readSiliconRev.hex 
-	avr-size test_readSiliconRev.out
-	@echo " "
-	@echo "Expl.: data=initialized data, bss=uninitialized data, text=code"
-	@echo " "
-test_readSiliconRev.out : test_readSiliconRev.o enc28j60.o ip_arp_udp_tcp.o
-	$(CC) $(CFLAGS) -o test_readSiliconRev.out -Wl,-Map,test_readSiliconRev.map test_readSiliconRev.o enc28j60.o ip_arp_udp_tcp.o
-test_readSiliconRev.o : test_readSiliconRev.c ip_arp_udp_tcp.h avr_compat.h enc28j60.h timeout.h net.h
-	$(CC) $(CFLAGS) -Os -c test_readSiliconRev.c
-#------------------
-#------------------
-load_testLCD: testLCD.hex
-	$(LOADCMD) $(LOADARG)testLCD.hex
-load_test2: test2.hex
-	$(LOADCMD) $(LOADARG)test2.hex
-load_readSiliconRev: test_readSiliconRev.hex
-	$(LOADCMD) $(LOADARG)test_readSiliconRev.hex
-load_test1: test1.hex
-	$(LOADCMD) $(LOADARG)test1.hex
-load_test0: test0.hex
-	$(LOADCMD) $(LOADARG)test0.hex
-#------------------
-load: eth_ntp_clock.hex
-	$(LOADCMD) $(LOADARG)eth_ntp_clock.hex
+test_basic_ntpclient.elf: test_basic_ntpclient.o ip_arp_udp_tcp.o enc28j60.o websrv_help_functions.o
+	$(CC) $(CFLAGS) -o test_basic_ntpclient.elf -Wl,-Map,test_basic_ntpclient.map test_basic_ntpclient.o ip_arp_udp_tcp.o enc28j60.o websrv_help_functions.o
 #
-pre: eth_ntp_clock.hex
-	cp eth_ntp_clock.hex eth_ntp_clock-precompiled.hex
+test_basic_ntpclient.o: test_basic_ntpclient.c ip_arp_udp_tcp.h enc28j60.h timeout.h net.h websrv_help_functions.h ip_config.h
+	$(CC) $(CFLAGS) -Os -c test_basic_ntpclient.c
+#------------------
+load: main.hex
+	$(LOADCMD) $(LOADARG)main.hex
 #
+load_test_basic_ntpclient: test_basic_ntpclient.hex
+	$(LOADCMD) $(LOADARG)test_basic_ntpclient.hex
+#
+load_test_lcd: test_lcd.hex
+	$(LOADCMD) $(LOADARG)test_lcd.hex
 #-------------------
 # Check this with make rdfuses
 rdfuses:
-	avrdude -p $(DUDECPUTYPE) -c stk500v2 -v -q
+	$(LOADCMD) -p $(DUDECPUTYPE) -c stk500v2 -v -q
 #
 fuse:
-	@echo "Setting AVR clock source to clock signal from enc28j60..."
-	@sleep 1
-	avrdude -p  $(DUDECPUTYPE) -c stk500v2 -u -v -U lfuse:w:0x60:m
+	@echo "warning: run this command only if you have an external clock on pin xtal1"
+	@echo "The is the last chance to stop. Press crtl-C to abort"
+	@sleep 2
+	$(LOADCMD) -p  $(DUDECPUTYPE) -c stk500v2 -u -v -U lfuse:w:0x60:m
 #-------------------
 clean:
-	rm -f *.o *.map *.out test*.hex eth_ntp_clock.hex
+	rm -f *.o *.map *.elf  main.hex test_basic_ntpclient.hex test_lcd.hex
 #-------------------

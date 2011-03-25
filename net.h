@@ -81,6 +81,11 @@
 //
 #define ICMP_TYPE_P 0x22
 #define ICMP_CHECKSUM_P 0x24
+#define ICMP_CHECKSUM_H_P 0x24
+#define ICMP_CHECKSUM_L_P 0x25
+#define ICMP_IDENT_H_P 0x26
+#define ICMP_IDENT_L_P 0x27
+#define ICMP_DATA_P 0x2a
 
 // ******* UDP *******
 #define UDP_HEADER_LEN	8
@@ -108,6 +113,7 @@
 #define TCP_FLAGS_P 0x2f
 #define TCP_FLAGS_SYN_V 2
 #define TCP_FLAGS_FIN_V 1
+#define TCP_FLAGS_RST_V 4
 #define TCP_FLAGS_PUSH_V 8
 #define TCP_FLAGS_SYNACK_V 0x12
 #define TCP_FLAGS_ACK_V 0x10
@@ -115,6 +121,7 @@
 //  plain len without the options:
 #define TCP_HEADER_LEN_PLAIN 20
 #define TCP_HEADER_LEN_P 0x2e
+#define TCP_WIN_SIZE 0x30
 #define TCP_CHECKSUM_H_P 0x32
 #define TCP_CHECKSUM_L_P 0x33
 #define TCP_OPTIONS_P 0x36

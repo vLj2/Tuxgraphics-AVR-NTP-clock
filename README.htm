@@ -1,28 +1,16 @@
+<h2>Tuxgraphics ntp clock with build-in web interface</h2>
 <pre>
-# vim:sw=8:ts=8:si:et
 
-This is the software for the tuxgraphics.org
-ntp clock with build-in web interface. See http://tuxgraphics.org/electronics/
-One this page you find at the bottom also my e-mail address in case
-you would like to send me code updates or corrections.
+See http://tuxgraphics.org/electronics/
 
 Copyright of most software and all diagrams: Guido Socher
-
-Copyright of enc28j60.c/enc28j60.h Pascal Stang (http://www.procyonengineering.com/)
-          and small modifications by Guido Socher
 
 License for everything: GPL V2
 See http://www.gnu.org/licenses/gpl.html
 ---------------------------------------------------------------------------
-You need an atmega168 for this software. Converting ntp time stamps into
-readable time and date requires some more complicated math and atmega88 is 
-too small for that.
----------------------------------------------------------------------------
 
  All parts needed to build this AVR ethernet solution can be ordered from 
  http://shop.tuxgraphics.org/                                          
- Note that the magnetics need to fit exactly the requirements of the enc28j60
- chip. You can not just take any transformer.
 
 !! READ THIS FIRST !!
 ---------------------
@@ -30,169 +18,150 @@ Edit the file main.c and change the lines:
 static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
 static uint8_t myip[4] = {10,0,0,28};
 static uint8_t gwip[4] = {10,0,0,1};
-int8_t hours_offset_to_utc=1;
+int16_t hours_offset_to_utc=40;
 
 For the first device you build you will not need to change the mymac line.
 But you will probably need to change the IP address (myip). It must be a
 free address from the address range in your home network.
 gwip is the default GW ip (how to get into the internet, normally the internal
 IP of your DSL router).
-hours_offset_to_utc is the time offset to UTC. You set this according to your
-timezone (1 is Germany, France etc.. in winter). You can change all those values
+hours_offset_to_utc is the time offset to UTC in hours times 10. 
+You set this according to your timezone (-10 is Germany, France etc.. in winter). You can change all those values
 also later on without re-compiling but you want to have usable default values.
 
-There is a range of private addresses (not routed on the public internet)
-which you can use:
-Netmask          Network Addresses
-255.0.0.0         10.0.0.0 - 10.255.255.255
-255.255.0.0       172.16.0.0 - 172.31.255.255
-255.255.255.0     192.168.0.0 - 192.168.255.255
+Check the file "Makefile" and make sure the MCU is set correctly:
 
-Example: you wlan router might have 192.168.1.1, your PC might have
-192.168.1.2. This means you could e.g use 192.168.1.10 and leave some
-room for more PCs. If you use DHCP then make sure that the address it not
-double allocated (exclude it from the DHCP range).
+! MCU=atmega168
+! DUDECPUTYPE=m168
+! or
+! MCU=atmega328p
+! DUDECPUTYPE=m328
+
+Adapt also the "LOADCMD" variable at the begining of the Makefile
+to be able to run "make load".
 
 You need an avr-gcc development environment in order to compile this.
-You need at least avrlibc-1.4.x !! The atmega88 will not work with earilier 
-version.
+See http://tuxgraphics.org/electronics/200901/avr-gcc-linux.shtml
 
 To compile the final software use the command:
 make
 
-The above command will compile the following hex files:
-eth_ntp_clock.hex  test0.hex  test1.hex  test2.hex  test_readSiliconRev.hex testLCD.hex
+Note: windows users may use and modify the supplied winmake.bat to setup the
+environment correctly.
 
 The command
 make load
 
-will execute a unix script and download eth_ntp_clock.hex to the atmega168. It works
-only for tuxgraphics programmers and linux. If you have a different programmer then
-you should just take the hex files and download them with whatever command it
-applicable to your programmer hardware.
-E.g something like: 
-   avrdude -p m168 -c avrusb500 -e -U flash:w:eth_rem_dev_tcp.hex
+will execute the avrdude command to load the main.hex software (NTP clock).
 
-! Note your programmer might interfer with the enc28j60! For the avrusb500
-! with 30cm cable you can normally leave the cable on. For all other programmers
-! it is however saver to remove the programmer cable and power down/up the device.
-! This is because the SPI interface is used for loading of the software and 
-! communication to the enc28j60.
+<br>Note your programmer might interfere with the enc28j60!</b> For the avrusb500
+with 30cm cable you can normally leave the cable on. For all other programmers
+it is however saver to remove the programmer cable and power down/up the device.
+This is because the SPI interface is used for loading of the software and 
+communication to the enc28j60.
 
 To see a list of all possible build targets run the command:
 make help
 
+<b>
 Selecting the right clock source
 --------------------------------
-This ntp-clock works only with a clock signal from the enc28j60. 
-To use this you need to change the low fuse byte once from 0x62 to 0x60:
-avrdude -p m168 -c avrusb500 -u -v -U lfuse:w:0x60:m
+</b>
+Tuxgraphics hardware sold as of march 2007 is prepared to use the clock
+signal from the enc28j60. To use this you need to change the 
+low fuse byte once from 0x62 to 0x60:
+
+avrdude -p m168 -c stk500v2 -u -v -U lfuse:w:0x60:m
+or 
+avrdude -p m328 -c stk500v2 -u -v -U lfuse:w:0x60:m
 
 or just type in your Linux shell:
 make fuse
 
-fter programming the fuse settings of atmega168 should be:
+After programming the fuse settings of atmega168 and atmega88 should be:
  low fuse:  0x60
  high fuse: 0xdf
-  ext. fuse: 0x01
+ ext. fuse: 0x01
 
- For the atmega328 the hfuse and efuse bytes look slightly different.
- The idea is however the same. Just change the lfuse from factory default
- to 0x60. The fuse settings of the atmega328 are after programming:
-    lfuse reads as 0x60
-    hfuse reads as 0xD9
-    efuse reads as 0x07
+For the atmega328p the hfuse and efuse bytes look slightly different.
+The idea is however the same. Just change the lfuse from factory default
+to 0x60. The fuse settings of the atmega328 are after programming:
+ lfuse reads as 0x60
+ hfuse reads as 0xD9
+ efuse reads as 0x07
 
- details of the lfuse bits:
-       CKDIV8 = 0
-       CKOUT  = 1
-       SUT1   = 1
-       SUT0   = 0
-       CKSEL3 = 0
-       CKSEL2 = 0
-       CKSEL1 = 0
-       CKSEL0 = 0
+details of the lfuse bits:
+  CKDIV8 = 0
+  CKOUT  = 1
+  SUT1   = 1
+  SUT0   = 0
+  CKSEL3 = 0
+  CKSEL2 = 0
+  CKSEL1 = 0
+  CKSEL0 = 0
 
-
-If you are unsure what the current fuse setting are on the atmega168 
-then you can read the fuse settings with a command like: 
-          avrdude -p m168 -c avrusb500 -v -q
-      The result should be this (default factory settings):
+If you are unsure what the current fuse setting are on the atmega
+then you can read the fuse settings with a command like:
+          avrdude -p m168 -c stk500v2 -v -q
+The result should be this (default factory settings for atmega168):
           avrdude: safemode: lfuse reads as 62
           avrdude: safemode: hfuse reads as DF
           avrdude: safemode: efuse reads as 1
 
+The result should be this (default factory settings for atmega328p, the
+efuse is dependent on the chip revision):
+          avrdude: safemode: lfuse reads as 62
+          avrdude: safemode: hfuse reads as D9
+          avrdude: safemode: efuse reads as 7
+
+<b>
 Compiling on non-Unix systems
 -----------------------------
-Please use the provided Makefile
+</b>
+Please use the provided Makefile !!!
 
-It will also work under Windows except for the loading
-of the software. That is compiling will work but not
-"make load". Use then whatever tools and commands to download
-the resuting .hex file into the micrcontroller
+It will also work under Windows.
 
-Take also a look at the supplied winmake.bat file. This bat script
+Take a look at the supplied winmake.bat and winload.bat file. This bat script
 might be needed to set the environment correctly.
 
-Loading the test software
--------------------------
-Test of the atmega168:
-make test0.hex
-make load_test0
+A description of what makefiles are and how they work can be found at:
+http://tuxgraphics.org/electronics/200912/makefiles.shtml
 
-This will case a LED on PB1 to blink with 1Hz
+<b>
+Hardware tests and other test software
+--------------------------------------
+</b>
+This package contains besides the NTP clock also other software
+that you can use to test the hardware.
+They are simple examples and good if you want to understand how
+a specific aspect of the main software works.
 
-Test of the atmega168 and the LCD display/correct LCD wiring
-make testLCD.hex
-make load_testLCD
+1) test_lcd.c
 
-This will case a LED on PB1 to blink with 1Hz and show "=ok=" on the LCD display
+This is a simple LCD display test:
 
----------------
-Edit the file test1.c and change the lines (see description above):
-static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
-static uint8_t myip[4] = {10,0,0,28};
+Compile and load it with the command
+make load_test_lcd
 
-make test1.hex
-make load_test1
+2) test_basic_ntpclient.c
 
-The program will perform a LED test for the LEDs on the magjack.
-The LEDs will go on and off after startup and then the green LED
-should stray on indicating that the link is up. When you ping the circuit
-it will answer. The yellow LED should blink when the a packet arrives.
-The red LED on PB1 should go on/off with every ping packet.
+This is a simple web-page sending an NTP query and it
+displays the time received.
 
----------------
-Edit the file test1.c and change the lines (see description above):
-static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
-static uint8_t myip[4] = {10,0,0,28};
+Change the IP addresses as described further up but
+this time in file test_basic_ntpclient.c and the use
+the command
 
-make test2.hex
-make load_test2
+make load_test_basic_ntpclient
 
-The green LED on the magjack should go on indicating that the link is up.
-When you ping the circuit it will answer. The yellow LED should blink when 
-the a packet arrives.
-
-A simple web server example (not the eth_rem_dev_tcp.hex)
----------------------------------------------------------
-The test_readSiliconRev.c (compiles to load_readSiliconRev.hex) reads 
-the enc28j60 silicon revision and displays it. 
-You can use it as a base for a simple application
-where you want to just read data (e.g thermometer)
-
-make 
-make load_readSiliconRev
-
-Read via webbrowser:
-http://10.0.0.28
-
-will display a webpage with:
-ENC28J60 silicon rev is: 4
+to compile and load the software.
 
 
+<b>
 Using the NTP clock
 -------------------
+</b>
 Point your web browser to
 http://10.0.0.28   (or what ever IP address you have given your hardware)
 and you should see the time and date in the same way as it is shown
@@ -215,12 +184,21 @@ on the right (behind the braces). The meaning of this character is:
    during the night then you will see this character. Note that the clock
    will continue to run form the internal crystal.
 
+<b>
+Changing the configuration
+--------------------------
+</b>
+To change from summer to winter time or to modify any IP
+point your web browser to
+http://10.0.0.28/config   (or what ever IP address you have given your hardware
+at compile time)
 
-Messages form a Network analyser
---------------------------------
-ntpclock.cap and ntpclock.txt are
-decoded and binary messages of the communication with the
-ntp server. This will help you to understand the code.
+The default password (if you did not change is) is: secret
+
+You can rest any changes back to compile time default values in
+case you forgot what you changed.
+Connect pin PB0 on the atmega chip with GND and power-cycle the clock.
+It will then come up with the compile time default settings.
 
 Revision history
 ----------------
@@ -234,13 +212,15 @@ Revision history
 2008-04-26: version 0.3 -- Codevision compatibility
                            The new avrdude checks if you have a atmega88 or atmega168
                            this needs to be reflected now in the Makefile. 
-                        -- Make password srting longer
+                        -- Make password sting longer
                         -- add a "continue button"
 
-2008-05-17: version 0.4 -- it was not possible to store timezones with negative 
+2008-05-17: version 0.4 -- it was not possible to store time zones with negative 
                            offset.
-2008-07-22: version 0.5 -- fault in timezones data on config page fixed
+2008-07-22: version 0.5 -- fault in time zones data on config page fixed
 2009-03-25: version 0.6 -- Updates for atmega328 
 2009-06-24: version 0.7 -- Display own MAC addr. in config page.
 2009-08-02: version 0.8 -- Update for string buffer overrun (change buf to 570)
+2010-01-31: version 0.9 -- Major re-write. Now using the new TCP/IP stack.
 </pre>
+# vim:sw=8:ts=8:si:et

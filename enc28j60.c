@@ -13,22 +13,21 @@
  * Chip type           : ATMEGA88 with ENC28J60
  *********************************************/
 #include <avr/io.h>
-#include "avr_compat.h"
 #include "enc28j60.h"
 //
 #define F_CPU 12500000UL  // 12.5 MHz
 #ifndef ALIBC_OLD
-#include <util/delay.h>
+#include <util/delay_basic.h>
 #else
 #include <avr/delay.h>
 #endif
 
 
 static uint8_t Enc28j60Bank;
-static uint16_t gNextPacketPtr;
+static int16_t gNextPacketPtr;
 #define ENC28J60_CONTROL_PORT   PORTB
 #define ENC28J60_CONTROL_DDR    DDRB
-#define ENC28J60_CONTROL_CS     2
+#define ENC28J60_CONTROL_CS     PORTB2
 #define ENC28J60_CONTROL_SO PORTB4
 #define ENC28J60_CONTROL_SI PORTB3
 #define ENC28J60_CONTROL_SCK PORTB5
@@ -134,7 +133,7 @@ uint16_t enc28j60PhyReadH(uint8_t address)
 	// Set the right address and start the register read operation
 	enc28j60Write(MIREGADR, address);
 	enc28j60Write(MICMD, MICMD_MIIRD);
-        _delay_us(15);
+        _delay_loop_1(40); // 10us
 
 	// wait until the PHY read completes
 	while(enc28j60Read(MISTAT) & MISTAT_BUSY);
@@ -162,7 +161,7 @@ void enc28j60PhyWrite(uint8_t address, uint16_t data)
         enc28j60Write(MIWRH, data>>8);
         // wait until the PHY write completes
         while(enc28j60Read(MISTAT) & MISTAT_BUSY){
-                _delay_us(15);
+                _delay_loop_1(40); // 10us
         }
 }
 
@@ -180,10 +179,10 @@ void enc28j60Init(uint8_t* macaddr)
 	CSPASSIVE; // ss=0
         //	
 	ENC28J60_CONTROL_DDR  |= 1<<ENC28J60_CONTROL_SI | 1<<ENC28J60_CONTROL_SCK; // mosi, sck output
-	cbi(ENC28J60_CONTROL_DDR,ENC28J60_CONTROL_SO); // MISO is input
+	ENC28J60_CONTROL_DDR|= 1<<ENC28J60_CONTROL_SO; // MISO is input
         //
-        cbi(ENC28J60_CONTROL_PORT,ENC28J60_CONTROL_SI); // MOSI low
-        cbi(ENC28J60_CONTROL_PORT,ENC28J60_CONTROL_SCK); // SCK low
+        ENC28J60_CONTROL_PORT|= 1<<ENC28J60_CONTROL_SI; // MOSI low
+        ENC28J60_CONTROL_PORT|= 1<<ENC28J60_CONTROL_SCK; // SCK low
 	//
 	// initialize SPI interface
 	// master mode and Fosc/2 clock:
@@ -191,7 +190,7 @@ void enc28j60Init(uint8_t* macaddr)
         SPSR |= (1<<SPI2X);
 	// perform system reset
 	enc28j60WriteOp(ENC28J60_SOFT_RESET, 0, ENC28J60_SOFT_RESET);
-        _delay_loop_1(205); // 50ms
+        _delay_loop_2(0); // 20ms
 	// check CLKRDY bit to see if reset is complete
         // The CLKRDY does not work. See Rev. B4 Silicon Errata point. Just wait.
 	//while(!(enc28j60Read(ESTAT) & ESTAT_CLKRDY));
