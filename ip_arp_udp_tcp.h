@@ -34,7 +34,8 @@ extern void www_server_reply(uint8_t *buf,uint16_t dlen);
 // -- client functions --
 #if defined (WWW_client) || defined (NTP_client) || defined (UDP_client) || defined (TCP_client)
 extern void client_set_gwip(uint8_t *gwipaddr);
-extern uint8_t client_waiting_gw(void); // 1 or 2 no GW mac yet, 0 have a gw mac
+extern void client_gw_arp_refresh(void);
+extern uint8_t client_waiting_gw(void); // 1 no GW mac yet, 0 have a gw mac
 #endif
 
 
@@ -115,7 +116,9 @@ extern void client_http_post(prog_char *urlbuf, prog_char *hoststr, prog_char *a
 
 #ifdef NTP_client
 // be careful to not mix client_ntp_request with situations where you are filling
-// a web-page. Normally you will be using the same packet buffer 
+// a web-page. Normally you will be using the same packet buffer and
+// client_ntp_request writes immediately to buf. You might need to
+// set a marker and call client_ntp_request when your main loop is idle.
 extern void client_ntp_request(uint8_t *buf,uint8_t *ntpip,uint8_t srcport);
 extern uint8_t client_ntp_process_answer(uint8_t *buf,uint32_t *time,uint8_t dstport_l);
 #endif

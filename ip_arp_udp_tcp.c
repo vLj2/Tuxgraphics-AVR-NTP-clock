@@ -66,7 +66,7 @@ static void (*icmp_callback)(uint8_t *ip);
 static int16_t delaycnt=1;
 static uint8_t gwip[4]; 
 static uint8_t gwmacaddr[6];
-static volatile uint8_t waitgwmac=1;
+static volatile uint8_t waitgwmac=0; // 0=wait, 1=first req no anser, 2=have gwmac, 3=refeshing but have gw mac
 #endif
 static uint8_t macaddr[6];
 static uint8_t ipaddr[4];
@@ -849,7 +849,10 @@ void client_arp_whohas(uint8_t *buf,uint8_t *ip_we_search)
 
 uint8_t client_waiting_gw(void)
 {
-        return(waitgwmac); // 1 or 2 no GW mac yet, 0 have a gw mac
+        if (waitgwmac==3||waitgwmac==2){
+                return(0);
+        }
+        return(1);
 }
 
 // store the mac addr from an arp reply
@@ -871,10 +874,16 @@ uint8_t client_store_gw_mac(uint8_t *buf)
         return(1);
 }
 
+void client_gw_arp_refresh(void) {
+        if (waitgwmac==2){
+                waitgwmac=3;
+        }
+}
+
 void client_set_gwip(uint8_t *gwipaddr)
 {
         uint8_t i=0;
-        waitgwmac=2; // causes an arp request in the packet loop
+        waitgwmac=1; // causes an arp request in the packet loop
         while(i<4){
                 gwip[i]=gwipaddr[i];
                 i++;
@@ -1154,12 +1163,12 @@ uint16_t packetloop_icmp_tcp(uint8_t *buf,uint16_t plen)
         // packet (without crc error):
 #if defined (NTP_client) ||  defined (UDP_client) || defined (TCP_client)
         if(plen==0){
-                if (waitgwmac==2 && delaycnt==0&& enc28j60linkup()){
+                if ((waitgwmac==3||waitgwmac==1) && delaycnt==0&& enc28j60linkup()){
                         client_arp_whohas(buf,gwip);
                 }
                 delaycnt++;
 #if defined (TCP_client)
-                if (tcp_client_state==1 && waitgwmac==0){ // send a syn
+                if (tcp_client_state==1 && (waitgwmac==3||waitgwmac==2)){ // send a syn
                         tcp_client_state=2;
                         tcpclient_src_port_l++; // allocate a new port
                         // we encode our 3 bit fd into the src port this
@@ -1180,10 +1189,10 @@ uint16_t packetloop_icmp_tcp(uint8_t *buf,uint16_t plen)
                         make_arp_answer_from_request(buf);
                 }
 #if defined (NTP_client) || defined (UDP_client) || defined (TCP_client)
-                if (waitgwmac==2 && (buf[ETH_ARP_OPCODE_L_P]==ETH_ARP_OPCODE_REPLY_L_V)){
+                if ((waitgwmac==3||waitgwmac==1) && (buf[ETH_ARP_OPCODE_L_P]==ETH_ARP_OPCODE_REPLY_L_V)){
                         // is it an arp reply 
                         if (client_store_gw_mac(buf)){
-                                waitgwmac=0;
+                                waitgwmac=2;
                         }
                 }
 #endif // NTP_client||UDP_client||TCP_client

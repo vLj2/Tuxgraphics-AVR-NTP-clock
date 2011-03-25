@@ -69,7 +69,7 @@ static uint8_t prev_minutes=99; // inititlaize to something that does not exist
 static uint8_t haveNTPanswer=0; // 0=never sent an ntp req, 1=have time, 2=reqest sent no answer yet
 static char lindicator='/'; // link indicator on the right
 static uint8_t send_ntp_req_from_idle_loop=1;
-static uint8_t update_at_58_was_requested=0;
+static uint8_t update_at_58_avoid_duplicates=0;
 // this is were we keep time (in unix gmtime format):
 // Note: this value may jump a few seconds when a new ntp answer comes.
 // You need to keep this in mid if you build an alarm clock. Do not match
@@ -352,18 +352,22 @@ void print_time_to_lcd(void)
         lcd_putc(lindicator);
         prev_minutes=minutes;
         // before every hour
-        if (minutes==58 && update_at_58_was_requested==0){  
+        if (minutes==57 && update_at_58_avoid_duplicates==0){  
+                client_gw_arp_refresh();  // causes a refresh arp for the GW mac
+                update_at_58_avoid_duplicates=1;
+        }
+        if (minutes==58 && update_at_58_avoid_duplicates==1){  
                 // mark that we will wait for new
                 // ntp update
                 haveNTPanswer=2;
                 send_ntp_req_from_idle_loop=1;
-                update_at_58_was_requested=1;
+                update_at_58_avoid_duplicates=2;
         }
-        // we need this update_at_58_was_requested variable
-        // otherwise we will send every second an ntp request
+        // we need this update_at_58_avoid_duplicates variable
+        // otherwise we will send every second an arp or ntp request
         // in that minute
-        if (minutes<58){
-                update_at_58_was_requested=0;
+        if (minutes<56){
+                update_at_58_avoid_duplicates=0;
         }
 }
 
