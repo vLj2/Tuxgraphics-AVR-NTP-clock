@@ -84,22 +84,35 @@ make help
 
 Selecting the right clock source
 --------------------------------
-Tuxgraphics hardware sold as of march 2007 is prepared to use the clock
-signal from the enc28j60. To use this you need to change the 
-low fuse byte once from 0x62 to 0x60:
+This ntp-clock works only with a clock signal from the enc28j60. 
+To use this you need to change the low fuse byte once from 0x62 to 0x60:
 avrdude -p m168 -c avrusb500 -u -v -U lfuse:w:0x60:m
 
 or just type in your Linux shell:
 make fuse
 
-Note: Older hardware must use the atmega168 internal clock (8MHz).
-Don't try to change any fuse bytes on the older hardware!! You will
-not easily be able to undo such an operation on the older hardware.
-It will completely halt and nothing will work anymore.
-The older hardware must use the factory default fuses which look like this:
-low fuse:  0x62
-high fuse: 0xdf
-ext. fuse: 0x01
+fter programming the fuse settings of atmega168 and atmega88 should be:
+ low fuse:  0x60
+ high fuse: 0xdf
+  ext. fuse: 0x01
+
+ For the atmega328 the hfuse and efuse bytes look slightly different.
+ The idea is however the same. Just change the lfuse from factory default
+ to 0x60. The fuse settings of the atmega328 are after programming:
+    lfuse reads as 0x60
+    hfuse reads as 0xD9
+    efuse reads as 0x07
+
+ details of the lfuse bits:
+       CKDIV8 = 0
+       CKOUT  = 1
+       SUT1   = 1
+       SUT0   = 0
+       CKSEL3 = 0
+       CKSEL2 = 0
+       CKSEL1 = 0
+       CKSEL0 = 0
+
 
 If you are unsure what the current fuse setting are on the atmega88 
 then you can read the fuse settings with a command like: 
@@ -112,6 +125,7 @@ then you can read the fuse settings with a command like:
 Compiling on non-Unix systems
 -----------------------------
 Please use the provided Makefile
+
 It will also work under Windows except for the loading
 of the software. That is compiling will work but not
 "make load". Use then whatever tools and commands to download
@@ -223,4 +237,5 @@ Revision history
 2008-05-17: version 0.4 -- it was not possible to store timezones with negative 
                            offset.
 2008-07-22: version 0.5 -- fault in timezones data on config page fixed
+2009-03-25: version 0.6 -- Updates for atmega328 
 </pre>

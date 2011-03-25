@@ -43,10 +43,10 @@ int main(void)
 
         while (1) {
                     /* led on, pin=0 */
-                    PORTB &= ~(1<<PB1);
+                    PORTB &= ~(1<<PORTB1);
                     delay_ms(500);
                     /* set output to 5V, LED off */
-                    PORTB|= (1<<PB1);
+                    PORTB|= (1<<PORTB1);
                     delay_ms(500);
         }
         return(0);

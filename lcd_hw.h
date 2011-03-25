@@ -9,10 +9,10 @@
 /* change these definitions according to your hardware */
 
 
-#define LCD_DATA_PIN_D7  PD0	/* arbitrary pin for LCD data line D7 */
-#define LCD_DATA_PIN_D6  PD1	/* arbitrary pin for LCD data line D7 */
-#define LCD_DATA_PIN_D5  PD3	/* arbitrary pin for LCD data line D5 */
-#define LCD_DATA_PIN_D4  PD4	/* arbitrary pin for LCD data line D4 */
+#define LCD_DATA_PIN_D7  PORTD0	/* arbitrary pin for LCD data line D7 */
+#define LCD_DATA_PIN_D6  PORTD1	/* arbitrary pin for LCD data line D7 */
+#define LCD_DATA_PIN_D5  PORTD3	/* arbitrary pin for LCD data line D5 */
+#define LCD_DATA_PIN_D4  PORTD4	/* arbitrary pin for LCD data line D4 */
 
 #define LCD_DATA_DDR_D7 DDRD	/* ddr for LCD data line D7 */
 #define LCD_DATA_DDR_D6 DDRD	/* ddr for LCD data line D6 */
@@ -26,10 +26,10 @@
 
 #define LCD_RS_DDR       DDRD   /* ddr for RS line */
 #define LCD_RS_PORT      PORTD  /* port for RS line */
-#define LCD_RS_PIN       PD6
+#define LCD_RS_PIN       PORTD6
 #define LCD_E_DDR        DDRD  /* ddr for Enable line */
 #define LCD_E_PORT       PORTD  /* port for Enable line */
-#define LCD_E_PIN        PD5
+#define LCD_E_PIN        PORTD5
 
 
 /* normally you do not change the following */

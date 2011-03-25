@@ -1,9 +1,9 @@
 /*****************************************************************************
 * vim:sw=8:ts=8:si:et
 *
-* Title        : Microchip ENC28J60 Ethernet Interface Driver
-* Author        : Pascal Stang (c)2005
-* Modified by Guido Socher
+* Title      : Microchip ENC28J60 Ethernet Interface Driver
+* Author     : Pascal Stang 
+* Modified by: Guido Socher
 * Copyright: GPL V2
 *
 *This driver provides initialization and transmit/receive
@@ -270,6 +270,7 @@ extern void enc28j60PhyWrite(uint8_t address, uint16_t data);
 extern void enc28j60clkout(uint8_t clk);
 extern void enc28j60Init(uint8_t* macaddr);
 extern void enc28j60PacketSend(uint16_t len, uint8_t* packet);
+extern uint8_t enc28j60hasRxPkt(void);
 extern uint16_t enc28j60PacketReceive(uint16_t maxlen, uint8_t* packet);
 extern uint8_t enc28j60getrev(void);
 extern uint8_t enc28j60linkup(void);

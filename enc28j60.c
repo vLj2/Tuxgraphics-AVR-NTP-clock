@@ -15,7 +15,6 @@
 #include <avr/io.h>
 #include "avr_compat.h"
 #include "enc28j60.h"
-#include "timeout.h"
 //
 #define F_CPU 12500000UL  // 12.5 MHz
 #ifndef ALIBC_OLD
@@ -26,10 +25,13 @@
 
 
 static uint8_t Enc28j60Bank;
-static uint16_t NextPacketPtr;
+static uint16_t gNextPacketPtr;
 #define ENC28J60_CONTROL_PORT   PORTB
 #define ENC28J60_CONTROL_DDR    DDRB
 #define ENC28J60_CONTROL_CS     2
+#define ENC28J60_CONTROL_SO PORTB4
+#define ENC28J60_CONTROL_SI PORTB3
+#define ENC28J60_CONTROL_SCK PORTB5
 // set CS to 0 = active
 #define CSACTIVE ENC28J60_CONTROL_PORT&=~(1<<ENC28J60_CONTROL_CS)
 // set CS to 1 = passive
@@ -177,11 +179,11 @@ void enc28j60Init(uint8_t* macaddr)
 	ENC28J60_CONTROL_DDR |= 1<<ENC28J60_CONTROL_CS;
 	CSPASSIVE; // ss=0
         //	
-	DDRB  |= 1<<PB3 | 1<<PB5; // mosi, sck output
-	cbi(DDRB,PINB4); // MISO is input
+	ENC28J60_CONTROL_DDR  |= 1<<ENC28J60_CONTROL_SI | 1<<ENC28J60_CONTROL_SCK; // mosi, sck output
+	cbi(ENC28J60_CONTROL_DDR,ENC28J60_CONTROL_SO); // MISO is input
         //
-        cbi(PORTB,PB3); // MOSI low
-        cbi(PORTB,PB5); // SCK low
+        cbi(ENC28J60_CONTROL_PORT,ENC28J60_CONTROL_SI); // MOSI low
+        cbi(ENC28J60_CONTROL_PORT,ENC28J60_CONTROL_SCK); // SCK low
 	//
 	// initialize SPI interface
 	// master mode and Fosc/2 clock:
@@ -189,7 +191,7 @@ void enc28j60Init(uint8_t* macaddr)
         SPSR |= (1<<SPI2X);
 	// perform system reset
 	enc28j60WriteOp(ENC28J60_SOFT_RESET, 0, ENC28J60_SOFT_RESET);
-	delay_ms(50);
+        _delay_loop_1(205); // 50ms
 	// check CLKRDY bit to see if reset is complete
         // The CLKRDY does not work. See Rev. B4 Silicon Errata point. Just wait.
 	//while(!(enc28j60Read(ESTAT) & ESTAT_CLKRDY));
@@ -197,7 +199,7 @@ void enc28j60Init(uint8_t* macaddr)
 	// initialize receive buffer
 	// 16-bit transfers, must write low byte first
 	// set receive buffer start address
-	NextPacketPtr = RXSTART_INIT;
+	gNextPacketPtr = RXSTART_INIT;
         // Rx start
 	enc28j60Write(ERXSTL, RXSTART_INIT&0xFF);
 	enc28j60Write(ERXSTH, RXSTART_INIT>>8);
@@ -280,6 +282,15 @@ uint8_t enc28j60linkup(void)
 
 void enc28j60PacketSend(uint16_t len, uint8_t* packet)
 {
+        // Check no transmit in progress
+        while (enc28j60ReadOp(ENC28J60_READ_CTRL_REG, ECON1) & ECON1_TXRTS)
+        {
+                // Reset the transmit logic problem. See Rev. B4 Silicon Errata point 12.
+                if( (enc28j60Read(EIR) & EIR_TXERIF) ) {
+                        enc28j60WriteOp(ENC28J60_BIT_FIELD_SET, ECON1, ECON1_TXRST);
+                        enc28j60WriteOp(ENC28J60_BIT_FIELD_CLR, ECON1, ECON1_TXRST);
+                }
+        }
 	// Set the write pointer to start of transmit buffer area
 	enc28j60Write(EWRPTL, TXSTART_INIT&0xFF);
 	enc28j60Write(EWRPTH, TXSTART_INIT>>8);
@@ -292,10 +303,15 @@ void enc28j60PacketSend(uint16_t len, uint8_t* packet)
 	enc28j60WriteBuffer(len, packet);
 	// send the contents of the transmit buffer onto the network
 	enc28j60WriteOp(ENC28J60_BIT_FIELD_SET, ECON1, ECON1_TXRTS);
-        // Reset the transmit logic problem. See Rev. B4 Silicon Errata point 12.
-	if( (enc28j60Read(EIR) & EIR_TXERIF) ){
-                enc28j60WriteOp(ENC28J60_BIT_FIELD_CLR, ECON1, ECON1_TXRTS);
+}
+
+// just probe if there might be a packet
+uint8_t enc28j60hasRxPkt(void)
+{
+	if( enc28j60Read(EPKTCNT) ==0 ){
+		return(0);
         }
+        return(1);
 }
 
 // Gets a packet from the network receive buffer, if one is available.
@@ -315,11 +331,11 @@ uint16_t enc28j60PacketReceive(uint16_t maxlen, uint8_t* packet)
         }
 
 	// Set the read pointer to the start of the received packet
-	enc28j60Write(ERDPTL, (NextPacketPtr));
-	enc28j60Write(ERDPTH, (NextPacketPtr)>>8);
+	enc28j60Write(ERDPTL, (gNextPacketPtr &0xFF));
+	enc28j60Write(ERDPTH, (gNextPacketPtr)>>8);
 	// read the next packet pointer
-	NextPacketPtr  = enc28j60ReadOp(ENC28J60_READ_BUF_MEM, 0);
-	NextPacketPtr |= enc28j60ReadOp(ENC28J60_READ_BUF_MEM, 0)<<8;
+	gNextPacketPtr  = enc28j60ReadOp(ENC28J60_READ_BUF_MEM, 0);
+	gNextPacketPtr |= enc28j60ReadOp(ENC28J60_READ_BUF_MEM, 0)<<8;
 	// read the packet length (see datasheet page 43)
 	len  = enc28j60ReadOp(ENC28J60_READ_BUF_MEM, 0);
 	len |= enc28j60ReadOp(ENC28J60_READ_BUF_MEM, 0)<<8;
@@ -343,8 +359,19 @@ uint16_t enc28j60PacketReceive(uint16_t maxlen, uint8_t* packet)
         }
 	// Move the RX read pointer to the start of the next received packet
 	// This frees the memory we just read out
-	enc28j60Write(ERXRDPTL, (NextPacketPtr));
-	enc28j60Write(ERXRDPTH, (NextPacketPtr)>>8);
+	enc28j60Write(ERXRDPTL, (gNextPacketPtr &0xFF));
+	enc28j60Write(ERXRDPTH, (gNextPacketPtr)>>8);
+        // Move the RX read pointer to the start of the next received packet
+        // This frees the memory we just read out.
+        // However, compensate for the errata point 13, rev B4: enver write an even address!
+        if ((gNextPacketPtr - 1 < RXSTART_INIT)
+                || (gNextPacketPtr -1 > RXSTOP_INIT)) {
+                enc28j60Write(ERXRDPTL, (RXSTOP_INIT)&0xFF);
+                enc28j60Write(ERXRDPTH, (RXSTOP_INIT)>>8);
+        } else {
+                enc28j60Write(ERXRDPTL, (gNextPacketPtr-1)&0xFF);
+                enc28j60Write(ERXRDPTH, (gNextPacketPtr-1)>>8);
+        }
 	// decrement the packet counter indicate we are done with this packet
 	enc28j60WriteOp(ENC28J60_BIT_FIELD_SET, ECON2, ECON2_PKTDEC);
 	return(len);

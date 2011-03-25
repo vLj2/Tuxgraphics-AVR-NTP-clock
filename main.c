@@ -25,9 +25,9 @@
 #include "lcd.h"
 
 /* set output to Vcc, LED off */
-#define LEDOFF PORTB|=(1<<PB1)
+#define LEDOFF PORTB|=(1<<PORTB1)
 /* set output to GND, red LED on */
-#define LEDON PORTB&=~(1<<PB1);
+#define LEDON PORTB&=~(1<<PORTB1);
 // --------------- modify start
 // please modify the following two lines. mac and ip have to be unique
 // in your local area network. You can not have the same numbers in
@@ -409,7 +409,7 @@ int main(void){
         // next four instructions.
         CLKPR=(1<<CLKPCE); // change enable
         CLKPR=0; // "no pre-scaler"
-        delay_ms(1);
+        _delay_loop_1(50); // 12ms
 
         /* enable PD2/INT0, as input */
         DDRD&= ~(1<<DDD2);
@@ -421,7 +421,7 @@ int main(void){
         /*initialize enc28j60*/
         enc28j60Init(mymac);
         enc28j60clkout(2); // change clkout from 6.25MHz to 12.5MHz
-        delay_ms(10);
+        _delay_loop_1(50); // 12ms
         
         // LED
         /* enable PB1, LED as output */
@@ -447,7 +447,7 @@ int main(void){
         // 0x476 is PHLCON LEDA=links status, LEDB=receive/transmit
         // enc28j60PhyWrite(PHLCON,0b0000 0100 0111 01 10);
         enc28j60PhyWrite(PHLCON,0x476);
-        delay_ms(20);
+        _delay_loop_1(50); // 12ms
         // lcd display:
         lcd_init(LCD_DISP_ON);
         lcd_clrscr();
@@ -464,7 +464,11 @@ int main(void){
                 if (enc28j60linkup()){
                         haveGWip=99;
                 }
-                delay_ms(400);
+                i=0;
+                while(i<10){
+                        _delay_loop_1(150); // 36ms
+                        i++;
+                }
                 haveGWip++;
         }
         haveGWip=0;
