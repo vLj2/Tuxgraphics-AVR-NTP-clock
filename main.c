@@ -32,22 +32,30 @@
 // please modify the following two lines. mac and ip have to be unique
 // in your local area network. You can not have the same numbers in
 // two devices:
-static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
+static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x29};
 // how did I get the mac addr? Translate the first 3 numbers into ascii is: TUX
 static uint8_t myip[4] = {10,0,0,28};
 // if you have a NTP server in the local lan (=no GW) then set gwip to the same value
 // as ntpip:
 static uint8_t gwip[4] = {10,0,0,2};
-// change summer/winter time and your timezone here (utc +1 is Germany, France etc... in winter):
-int8_t hours_offset_to_utc=1;  
+// change summer/winter time and your timezone here (utc +1 is Germany, France etc... in winter), unit is hours times 10:
+int16_t hours_offset_to_utc=10;  // 20 means 2.0 hours = 2 hours
 //
 // --------------- modify stop
-// time.apple.com:
+// time.apple.com (any of 17.254.0.31, 17.254.0.26, 17.254.0.27, 17.254.0.28):
 static uint8_t ntpip[4] = {17,254,0,31};
 // timeserver.rwth-aachen.de
 //static uint8_t ntpip[4] = {134,130,4,17};
 // time.nrc.ca
 //static uint8_t ntpip[4] = {132,246,168,148};
+//
+// list of other servers: 
+// ntp1.curie.fr  193.49.205.19
+// ntp3.curie.fr  193.49.205.18
+// tick.utoronto.ca 128.100.56.135
+// ntp.nasa.gov 198.123.30.132
+// timekeeper.isi.edu 128.9.176.30
+// tick.mit.edu 18.145.0.30
 //
 static uint8_t ledstate=0;
 static uint8_t ntpclientportL=0;
@@ -57,6 +65,9 @@ static uint8_t ntpclientportL=0;
 #define BUFFER_SIZE 560
 static uint8_t buf[BUFFER_SIZE+1];
 // this is were we keep time (in unix gmtime format):
+// Note: this value may jump a few seconds when a new ntp answer comes.
+// You need to keep this in mid if you build an alarm clock. Do not match
+// on "==" use ">=" and set a state that indicates if you already triggered the alarm.
 static uint32_t time=0;
 // we do not update LCD from interrupt, we do it when we have time (no ip packet)
 static uint8_t lcd_needs_update=1;  
@@ -127,6 +138,52 @@ unsigned char h2int(char c)
                 return((unsigned char)c - 'A' + 10);
         }
         return(0);
+}
+
+// add a decimal point if needed: 120 becomes 12 and 105 becomes 10.5
+// 10 becomes 1 and 11 becomes 1.1
+// string must be at least 2 char long.
+void adddotifneeded(char *s)
+{
+        int8_t l;
+        l=strlen(s);
+        if (l<2){
+                return;
+        }
+        // look at last digit:
+        if(s[l-1]=='0'){
+                s[l-1]='\0';
+        }else{
+                // add dot
+                s[l]=s[l-1];
+                s[l-1]='.';
+                s[l+1]='\0';
+        }
+}
+
+// delete any decimal point. If no decimal point is available then add a zero at the 
+// end.
+void deldot(char *s)
+{
+        char c;
+        char *dst;
+        uint8_t founddot=0;
+        dst=s;
+        while ((c = *s)) {
+                if (c == '.'||c == ','){ // dot or comma
+                        s++;
+                        founddot=1;
+                        continue;
+                }
+                *dst = c;
+                dst++;
+                s++;
+        }
+        if (founddot==0){
+                *dst = '0';
+                dst++;
+        }
+        *dst = '\0';
 }
 
 // decode a url string e.g "hello%20joe" or "hello+joe" becomes "hello joe" 
@@ -207,7 +264,7 @@ void ip2str(char *resultstr,uint8_t *ip)
 //                 2 values upated
 int8_t analyse_get_url(char *str)
 {
-        int8_t i;
+        int16_t j;
         if (strncmp("config",str,6)!=0){
                 return(-1);
         }
@@ -236,9 +293,10 @@ int8_t analyse_get_url(char *str)
         }
         if (find_key_val(str,"tz")){
                 urldecode(strbuf);
-                i=atoi(strbuf);
-                if (i> -14 && i < 14){
-                        hours_offset_to_utc=i;
+                deldot(strbuf);
+                j=atoi(strbuf);
+                if (j> -140 && j < 140){
+                        hours_offset_to_utc=j;
                 }
         }
         if (find_key_val(str,"np")){
@@ -252,13 +310,16 @@ int8_t analyse_get_url(char *str)
         eeprom_write_block((uint8_t *)gwip,(void *)6,sizeof(gwip));
         eeprom_write_block((uint8_t *)ntpip,(void *)11,sizeof(ntpip));
         eeprom_write_byte((uint8_t *)16,hours_offset_to_utc);
-        eeprom_write_block((char *)password,(void *)18,sizeof(password));
+        eeprom_write_block((char *)password,(void *)19,sizeof(password));
 
         return(2);
 }
 
 
 // prepare the webpage by writing the data to the tcp send buffer
+// Note that this is about as much as you can put on a html page.
+// If you plan to build additional functions into this clock (e.g alarm clock) then
+// add a new page under /alarm and do not expand this /config page.
 uint16_t print_webpage(uint8_t *buf)
 {
         uint16_t plen;
@@ -277,6 +338,7 @@ uint16_t print_webpage(uint8_t *buf)
                 strbuf[0]='+';
         }
         itoa(hours_offset_to_utc,&(strbuf[1]),10);
+        adddotifneeded(&(strbuf[1]));
         plen=fill_tcp_data(buf,plen,strbuf);
         plen=fill_tcp_data_p(buf,plen,PSTR(">\nNew password: <input type=text name=np>\n\nPassword:     <input type=password name=pw><input type=hidden name=fd value=1>\n<input type=submit value=apply></form>\n</pre>"));
         return(plen);
@@ -316,9 +378,9 @@ void clock_init(void)
         //ICR1L=16; // top for counter
         // At what value to cause interrupt. You can use this for calibration
         // of the clock. Theoretical value for 25MHz: 12207=0x2f and 0xaf
-        // The crystal I use seems to tick a little slower I use 12205=0x2f and 0xad
+        // The crystal I use seems to tick a little slower I use 12206=0x2f and 0xae
         OCR1AH=0x2f;
-        OCR1AL=0xad;
+        OCR1AL=0xae;
         // interrupt mask bit:
         TIMSK1 = (1 << OCIE1A);
 }
@@ -332,7 +394,7 @@ int main(void){
         uint8_t haveNTPanswer=0; // 0 no initial ntp answer, 1= have answer, 2,3=sent new reqest
         uint8_t minutes=0;
         uint8_t prev_minutes=99; // initial value must be someting higher than 59
-        int8_t cmd;
+        int8_t i;
         char day[22];
         char clock[22];
         char tzstr[4];
@@ -371,7 +433,7 @@ int main(void){
                         eeprom_read_block((uint8_t *)gwip,(void *)6,sizeof(gwip));
                         eeprom_read_block((uint8_t *)ntpip,(void *)11,sizeof(ntpip));
                         hours_offset_to_utc=eeprom_read_byte((uint8_t *)16);
-                        eeprom_read_block((char *)password,(void *)18,sizeof(password));
+                        eeprom_read_block((char *)password,(void *)19,sizeof(password));
                         password[7]='\0'; // make sure it is terminated, should not be necessary
                 }
         }
@@ -395,11 +457,12 @@ int main(void){
         lcd_puts_P("OK");
 
         // just use variable haveGWip as a loop counter here to save memory
-        while(haveGWip<30){
+        while(haveGWip<15){
                 if (enc28j60linkup()){
                         haveGWip=99;
                 }
                 delay_ms(400);
+                haveGWip++;
         }
         haveGWip=0;
 
@@ -453,7 +516,7 @@ int main(void){
                                 }
                                 // link up or link down
                                 if (haveNTPanswer>0){
-                                        minutes=gmtime(time+3600*hours_offset_to_utc,day,clock);
+                                        minutes=gmtime(time+(uint32_t)360*(uint32_t)hours_offset_to_utc,day,clock);
                                         if (prev_minutes!=minutes){
                                                 // update complete display
                                                 lcd_clrscr();
@@ -468,10 +531,12 @@ int main(void){
                                                         lcd_puts_P("+");
                                                 }
                                                 itoa(hours_offset_to_utc,tzstr,10);
+                                                adddotifneeded(tzstr);
                                                 lcd_puts(tzstr);
-                                                lcd_puts_P(")");
+                                                lcd_puts_P(")"); 
                                         }
-                                        lcd_gotoxy(14,1);
+                                        // write to first line
+                                        lcd_gotoxy(15,0);
                                         lcd_putc(lindicator);
                                         // before every hour
                                         if (minutes==58){  
@@ -528,9 +593,9 @@ int main(void){
                         }
                         if (buf[TCP_FLAGS_P] & TCP_FLAGS_ACK_V){
                                 init_len_info(buf); // init some data structures
-                                cmd=0;
                                 // we can possibly have no data, just ack:
                                 dat_p=get_tcp_data_pointer();
+                                i=0;
                                 if (dat_p==0){
                                         if (buf[TCP_FLAGS_P] & TCP_FLAGS_FIN_V){
                                                 // finack, answer with ack
@@ -551,7 +616,7 @@ int main(void){
                                         plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"));
                                         plen=fill_tcp_data_p(buf,plen,PSTR("<h2>AVR NTP clock</h2><pre>\n"));
                                         if (haveNTPanswer){
-                                                gmtime(time+3600*hours_offset_to_utc,day,clock);
+                                                gmtime(time+(uint32_t)360*(uint32_t)hours_offset_to_utc,day,clock);
                                                 plen=fill_tcp_data(buf,plen,day);
                                                 plen=fill_tcp_data(buf,plen,"\n");
                                                 plen=fill_tcp_data(buf,plen,clock);
@@ -560,6 +625,7 @@ int main(void){
                                                         plen=fill_tcp_data(buf,plen,"+");
                                                 }
                                                 itoa(hours_offset_to_utc,tzstr,10);
+                                                adddotifneeded(tzstr);
                                                 plen=fill_tcp_data(buf,plen,tzstr);
                                                 plen=fill_tcp_data_p(buf,plen,PSTR(")\n"));
                                                 if (haveNTPanswer>1){
@@ -571,18 +637,18 @@ int main(void){
                                         }
                                         goto SENDTCP;
                                 }
-                                cmd=analyse_get_url((char *)&(buf[dat_p+5]));
+                                i=analyse_get_url((char *)&(buf[dat_p+5]));
                                 // for possible status codes see:
                                 // http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html
-                                if (cmd==-1){
+                                if (i==-1){
                                         plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 401 Unauthorized\r\nContent-Type: text/html\r\n\r\n<h1>401 Unauthorized</h1>"));
                                         goto SENDTCP;
                                 }
-                                if (cmd==1){
+                                if (i==1){
                                         plen=print_webpage(buf);
                                         goto SENDTCP;
                                 }
-                                if (cmd==2){
+                                if (i==2){
                                         plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n"));
                                         plen=fill_tcp_data_p(buf,plen,PSTR("<p>OK, values updated.</p>\n"));
 
@@ -590,7 +656,7 @@ int main(void){
 SENDTCP:
                                 make_tcp_ack_from_any(buf); // send ack for http get
                                 make_tcp_ack_with_data(buf,plen); // send data
-                                if (cmd==2){
+                                if (i==2){
                                         init_ip_arp_udp_tcp(mymac,myip,MYWWWPORT);
                                         haveGWip=0;
                                         haveNTPanswer=0; 
