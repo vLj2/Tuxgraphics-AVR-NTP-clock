@@ -1,0 +1,212 @@
+<pre>
+# vim:sw=8:ts=8:si:et
+
+This is the software for the tuxgraphics.org
+ntp clock with build-in web interface. See http://tuxgraphics.org/electronics/
+One this page you find at the bottom also my e-mail address in case
+you would like to send me code updates or corrections.
+
+Copyright of most software and all diagrams: Guido Socher
+
+Copyright of enc28j60.c/enc28j60.h Pascal Stang (http://www.procyonengineering.com/)
+          and small modifications by Guido Socher
+
+License for everything: GPL V2
+See http://www.gnu.org/licenses/gpl.html
+---------------------------------------------------------------------------
+You need an atmega168 for this software. Converting ntp time stamps into
+readable time and date requires some more complicated math and atmega88 is 
+too small for that.
+---------------------------------------------------------------------------
+
+ All parts needed to build this AVR ethernet solution can be ordered from 
+ http://shop.tuxgraphics.org/                                          
+ Note that the magnetics need to fit exactly the requirements of the enc28j60
+ chip. You can not just take any transformer.
+
+!! READ THIS FIRST !!
+---------------------
+Edit the file main.c and change the lines:
+static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
+static uint8_t myip[4] = {10,0,0,28};
+static uint8_t gwip[4] = {10,0,0,1};
+int8_t hours_offset_to_utc=1;
+
+For the first device you build you will not need to change the mymac line.
+But you will probably need to change the IP address (myip). It must be a
+free address from the address range in your home network.
+gwip is the default GW ip (how to get into the internet, normally the internal
+IP of your DSL router).
+hours_offset_to_utc is the time offset to UTC. You set this according to your
+timezone (1 is Germany, France etc.. in winter). You can change all those values
+also later on without re-compiling but you want to have usable default values.
+
+There is a range of private addresses (not routed on the public internet)
+which you can use:
+Netmask          Network Addresses
+255.0.0.0         10.0.0.0 - 10.255.255.255
+255.255.0.0       172.16.0.0 - 172.31.255.255
+255.255.255.0     192.168.0.0 - 192.168.255.255
+
+Example: you wlan router might have 192.168.1.1, your PC might have
+192.168.1.2. This means you could e.g use 192.168.1.10 and leave some
+room for more PCs. If you use DHCP then make sure that the address it not
+double allocated (exclude it from the DHCP range).
+
+You need an avr-gcc development environment in order to compile this.
+You need at least avrlibc-1.4.x !! The atmega88 will not work with earilier 
+version.
+
+To compile the final software use the command:
+make
+
+The above command will compile the following hex files:
+eth_ntp_clock.hex  test0.hex  test1.hex  test2.hex  test_readSiliconRev.hex testLCD.hex
+
+The command
+make load
+
+will execute a unix script and download eth_ntp_clock.hex to the atmega168. It works
+only for tuxgraphics programmers and linux. If you have a different programmer then
+you should just take the hex files and download them with whatever command it
+applicable to your programmer hardware.
+E.g something like: 
+   avrdude -p m168 -c avrusb500 -e -U flash:w:eth_rem_dev_tcp.hex
+
+! Note your programmer might interfer with the enc28j60! For the avrusb500
+! with 30cm cable you can normally leave the cable on. For all other programmers
+! it is however saver to remove the programmer cable and power down/up the device.
+! This is because the SPI interface is used for loading of the software and 
+! communication to the enc28j60.
+
+To see a list of all possible build targets run the command:
+make help
+
+Selecting the right clock source
+--------------------------------
+Tuxgraphics hardware sold as of march 2007 is prepared to use the clock
+signal from the enc28j60. To use this you need to change the 
+low fuse byte once from 0x62 to 0x60:
+avrdude -p m168 -c avrusb500 -u -v -U lfuse:w:0x60:m
+
+or just type in your Linux shell:
+make fuse
+
+Note: Older hardware must use the atmega168 internal clock (8MHz).
+Don't try to change any fuse bytes on the older hardware!! You will
+not easily be able to undo such an operation on the older hardware.
+It will completely halt and nothing will work anymore.
+The older hardware must use the factory default fuses which look like this:
+low fuse:  0x62
+high fuse: 0xdf
+ext. fuse: 0x01
+
+If you are unsure what the current fuse setting are on the atmega88 
+then you can read the fuse settings with a command like: 
+          avrdude -p m168 -c avrusb500 -v -q
+      The result should be this (default factory settings):
+          avrdude: safemode: lfuse reads as 62
+          avrdude: safemode: hfuse reads as DF
+          avrdude: safemode: efuse reads as 1
+
+Compiling on non-Unix systems
+-----------------------------
+Please use the provided Makefile
+It will also work under Windows except for the loading
+of the software. That is compiling will work but not
+"make load". Use then whatever tools and commands to download
+the resuting .hex file into the micrcontroller
+
+Loading the test software
+-------------------------
+Test of the atmega168:
+make test0.hex
+make load_test0
+
+This will case a LED on PB1 to blink with 1Hz
+
+Test of the atmega168 and the LCD display/correct LCD wiring
+make testLCD.hex
+make load_testLCD
+
+This will case a LED on PB1 to blink with 1Hz and show "=ok=" on the LCD display
+
+---------------
+Edit the file test1.c and change the lines (see description above):
+static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x24};
+static uint8_t myip[4] = {10,0,0,24};
+
+make test1.hex
+make load_test1
+
+The program will perform a LED test for the LEDs on the magjack.
+The LEDs will go on and off after startup and then the green LED
+should stray on indicating that the link is up. When you ping the circuit
+it will answer. The yellow LED should blink when the a packet arrives.
+The red LED on PB1 should go on/off with every ping packet.
+
+---------------
+Edit the file test1.c and change the lines (see description above):
+static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x24};
+static uint8_t myip[4] = {10,0,0,24};
+
+make test2.hex
+make load_test2
+
+The green LED on the magjack should go on indicating that the link is up.
+When you ping the circuit it will answer. The yellow LED should blink when 
+the a packet arrives.
+
+A simple web server example (not the eth_rem_dev_tcp.hex)
+---------------------------------------------------------
+The test_readSiliconRev.c (compiles to load_readSiliconRev.hex) reads 
+the enc28j60 silicon revision and displays it. 
+You can use it as a base for a simple application
+where you want to just read data (e.g thermometer)
+
+make 
+make load_readSiliconRev
+
+Read via webbrowser:
+http://10.0.0.24
+
+will display a webpage with:
+ENC28J60 silicon rev is: 4
+
+
+Using the NTP clock
+-------------------
+Point your web browser to
+http://10.0.0.24   (or what ever IP address you have given your hardware)
+and you should see the time and date in the same way as it is shown
+on the LCD:
+
+        AVR NTP clock
+
+        Sun 2007-10-28
+        21:22:50 (UTC +1)
+
+        refresh
+
+The LCD display has a link status and update status indicator
+on the right (behind the braces). The meaning of this character is:
+
+- nothing: ETH link ok, NTP time sync up-to date
+- '/': ETH link down
+- '|': ETH link up but ntp sever could not be reached yet. The clock
+   tries to sync every hour. Thus if you cut your internet connection
+   during the night then you will see this character. Note that the clock
+   will continue to run form the internal crystal.
+
+
+Messages form a Network analyser
+--------------------------------
+ntpclock.cap and ntpclock.txt are
+decoded and binary messages of the communication with the
+ntp server. This will help you to understand the code.
+
+Revision history
+----------------
+2007-10-28: version 0.1 -- first public version
+
+</pre>
