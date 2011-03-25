@@ -91,7 +91,7 @@ avrdude -p m168 -c avrusb500 -u -v -U lfuse:w:0x60:m
 or just type in your Linux shell:
 make fuse
 
-fter programming the fuse settings of atmega168 and atmega88 should be:
+fter programming the fuse settings of atmega168 should be:
  low fuse:  0x60
  high fuse: 0xdf
   ext. fuse: 0x01
@@ -114,7 +114,7 @@ fter programming the fuse settings of atmega168 and atmega88 should be:
        CKSEL0 = 0
 
 
-If you are unsure what the current fuse setting are on the atmega88 
+If you are unsure what the current fuse setting are on the atmega168 
 then you can read the fuse settings with a command like: 
           avrdude -p m168 -c avrusb500 -v -q
       The result should be this (default factory settings):
@@ -130,6 +130,9 @@ It will also work under Windows except for the loading
 of the software. That is compiling will work but not
 "make load". Use then whatever tools and commands to download
 the resuting .hex file into the micrcontroller
+
+Take also a look at the supplied winmake.bat file. This bat script
+might be needed to set the environment correctly.
 
 Loading the test software
 -------------------------
@@ -147,8 +150,8 @@ This will case a LED on PB1 to blink with 1Hz and show "=ok=" on the LCD display
 
 ---------------
 Edit the file test1.c and change the lines (see description above):
-static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x24};
-static uint8_t myip[4] = {10,0,0,24};
+static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
+static uint8_t myip[4] = {10,0,0,28};
 
 make test1.hex
 make load_test1
@@ -161,8 +164,8 @@ The red LED on PB1 should go on/off with every ping packet.
 
 ---------------
 Edit the file test1.c and change the lines (see description above):
-static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x24};
-static uint8_t myip[4] = {10,0,0,24};
+static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
+static uint8_t myip[4] = {10,0,0,28};
 
 make test2.hex
 make load_test2
@@ -182,7 +185,7 @@ make
 make load_readSiliconRev
 
 Read via webbrowser:
-http://10.0.0.24
+http://10.0.0.28
 
 will display a webpage with:
 ENC28J60 silicon rev is: 4
@@ -191,7 +194,7 @@ ENC28J60 silicon rev is: 4
 Using the NTP clock
 -------------------
 Point your web browser to
-http://10.0.0.24   (or what ever IP address you have given your hardware)
+http://10.0.0.28   (or what ever IP address you have given your hardware)
 and you should see the time and date in the same way as it is shown
 on the LCD:
 
@@ -238,4 +241,5 @@ Revision history
                            offset.
 2008-07-22: version 0.5 -- fault in timezones data on config page fixed
 2009-03-25: version 0.6 -- Updates for atmega328 
+2009-06-24: version 0.7 -- Display own MAC addr. in config page.
 </pre>

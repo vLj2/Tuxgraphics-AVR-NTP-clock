@@ -39,7 +39,9 @@ static uint8_t myip[4] = {10,0,0,28};
 // as ntpip:
 static uint8_t gwip[4] = {10,0,0,2};
 // change summer/winter time and your timezone here (utc +1 is Germany, France etc... in winter), unit is hours times 10:
-int8_t hours_offset_to_utc=10;  // 20 means 2.0 hours = 2 hours
+//int8_t hours_offset_to_utc=10;  // 20 means 2.0 hours = 2 hours
+// US/Canada eastern time in summer:
+int8_t hours_offset_to_utc=-40;  
 //
 // --------------- modify stop
 // time.apple.com (any of 17.254.0.31, 17.254.0.26, 17.254.0.27, 17.254.0.28):
@@ -241,22 +243,23 @@ void str2ip(uint8_t *resultip,char *str)
         }
 }
 
-// take binary IP addr array and display in dot-ed notation
-void ip2str(char *resultstr,uint8_t *ip)
+// take a byte string and convert it to a human readable display string  (base is 10 for ip and 16 for mac addr), len is 4 for IP addr and 6 for mac.
+void mk_net_str(char *resultstr,uint8_t *bytestr,uint8_t len,char separator,uint8_t base)
 {
         uint8_t i=0;
         uint8_t j=0;
-        while(i<4){
-                itoa((int)ip[i],&resultstr[j],10);
+        while(i<len){
+                itoa((int)bytestr[i],&resultstr[j],base);
                 // search end of str:
                 while(resultstr[j]){j++;}
-                resultstr[j]='.';
+                resultstr[j]=separator;
                 j++;
                 i++;
         }
         j--;
         resultstr[j]='\0';
 }
+
 
 // takes a string of the form password/commandNumber and analyse it
 // return values: -1 invalid password, or invalid page
@@ -265,6 +268,7 @@ void ip2str(char *resultstr,uint8_t *ip)
 int8_t analyse_get_url(char *str)
 {
         int16_t j;
+        // not the config page? return error
         if (strncmp("config",str,6)!=0){
                 return(-1);
         }
@@ -325,14 +329,17 @@ uint16_t print_webpage(uint8_t *buf)
         uint16_t plen;
         uint8_t i;
         plen=fill_tcp_data_p(buf,0,PSTR("HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nPragma: no-cache\r\n\r\n"));
-        plen=fill_tcp_data_p(buf,plen,PSTR("<pre>AVR NTP clock, config\n\n<form action=/config method=get>Clock own IP: <input type=text name=ip value="));
-        ip2str(strbuf,myip);
+        plen=fill_tcp_data_p(buf,plen,PSTR("<pre>AVR NTP clock, config\n\nMAC address:  "));
+        mk_net_str(strbuf,mymac,6,':',16);
+        plen=fill_tcp_data(buf,plen,strbuf);
+        plen=fill_tcp_data_p(buf,plen,PSTR("\n<form action=/config method=get>Clock own IP: <input type=text name=ip value="));
+        mk_net_str(strbuf,myip,4,'.',10);
         plen=fill_tcp_data(buf,plen,strbuf);
         plen=fill_tcp_data_p(buf,plen,PSTR(">\nDefault GW IP:<input type=text name=gw value="));
-        ip2str(strbuf,gwip);
+        mk_net_str(strbuf,gwip,4,'.',10);
         plen=fill_tcp_data(buf,plen,strbuf);
         plen=fill_tcp_data_p(buf,plen,PSTR(">\nNTP server IP:<input type=text name=ns value="));
-        ip2str(strbuf,ntpip);
+        mk_net_str(strbuf,ntpip,4,'.',10);
         plen=fill_tcp_data(buf,plen,strbuf);
         plen=fill_tcp_data_p(buf,plen,PSTR(">\nOffset to UTC:<input type=text name=tz value="));
         i=0;
@@ -343,7 +350,7 @@ uint16_t print_webpage(uint8_t *buf)
         itoa(hours_offset_to_utc,&(strbuf[i]),10);
         adddotifneeded(&(strbuf[i]));
         plen=fill_tcp_data(buf,plen,strbuf);
-        plen=fill_tcp_data_p(buf,plen,PSTR(">\nNew password: <input type=text name=np>\n\nPassword:     <input type=password name=pw><input type=hidden name=fd value=1>\n<input type=submit value=apply></form>\n</pre>"));
+        plen=fill_tcp_data_p(buf,plen,PSTR(">\nNew password: <input type=text name=np>\n\nPassword:     <input type=password name=pw><input type=hidden name=fd value=1>\n<input type=submit value=apply></form>\n"));
         return(plen);
 }
 

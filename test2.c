@@ -20,9 +20,9 @@
 // please modify the following two lines. mac and ip have to be unique
 // in your local area network. You can not have the same numbers in
 // two devices:
-static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x24};
+static uint8_t mymac[6] = {0x54,0x55,0x58,0x10,0x00,0x28};
 // how did I get the mac addr? Translate the first 3 numbers into ascii is: TUX
-static uint8_t myip[4] = {10,0,0,24};
+static uint8_t myip[4] = {10,0,0,28};
 // listen port for www
 #define MYWWWPORT 80
 //// listen port for udp
