@@ -95,7 +95,7 @@ static char password[10]="secret"; // must be a-z and 0-9, will be cut to 8 char
 uint8_t verify_password(char *str)
 {
         // a simple password/cookie:
-        if (strncmp(password,str,strlen(str))==0){
+        if (strncmp(password,str,sizeof(password))==0){
                 return(1);
         }
         return(0);
@@ -483,7 +483,7 @@ int main(void){
                         eeprom_read_block((uint8_t *)ntpip,(void *)11,sizeof(ntpip));
                         hours_offset_to_utc=(int8_t)eeprom_read_byte((uint8_t *)16);
                         eeprom_read_block((char *)password,(void *)19,sizeof(password));
-                        password[7]='\0'; // make sure it is terminated, should not be necessary
+                        password[8]='\0'; // make sure it is terminated, should not be necessary
                         display_utcoffset=(int8_t)eeprom_read_byte((uint8_t *)30);
                         display_24hclock=(int8_t)eeprom_read_byte((uint8_t *)31);
                 }

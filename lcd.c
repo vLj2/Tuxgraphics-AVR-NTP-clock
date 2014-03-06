@@ -57,8 +57,8 @@ Copyright: GPL V2
 ** function prototypes 
 */
 static void lcd_e_toggle(void);
-static void lcd_out_high(u08 d);
-static void lcd_out_low(u08 d);
+static void lcd_out_high(uint8_t d);
+static void lcd_out_low(uint8_t d);
 
 /*
 ** local functions
@@ -76,7 +76,7 @@ void lcd_delay_ms(unsigned int ms)
         }
 }
 
-static void lcd_out_low(u08 d)
+static void lcd_out_low(uint8_t d)
 {	/* output low nibble */
 	if (d&0x08)  sbi(LCD_DATA_PORT_D7,LCD_DATA_PIN_D7);
 		else cbi(LCD_DATA_PORT_D7,LCD_DATA_PIN_D7);
@@ -87,7 +87,7 @@ static void lcd_out_low(u08 d)
 	if (d&0x01)  sbi(LCD_DATA_PORT_D4,LCD_DATA_PIN_D4);
 		else cbi(LCD_DATA_PORT_D4,LCD_DATA_PIN_D4); 
 }
-static void lcd_out_high(u08 d)
+static void lcd_out_high(uint8_t d)
 {	/* output high nibble */ 
 	if (d&0x80)  sbi(LCD_DATA_PORT_D7,LCD_DATA_PIN_D7);
 		else cbi(LCD_DATA_PORT_D7,LCD_DATA_PIN_D7);
@@ -102,23 +102,23 @@ static void lcd_out_high(u08 d)
 static void lcd_e_toggle(void)
 /* toggle Enable Pin */
 {
-	lcd_e_high();
-	_delay_us(5);
+	_delay_us(1);
+	lcd_e_high(); 
+	_delay_us(2); // as per data sheet we must at least have 500ns high, 2us will work even for a bad display
 	lcd_e_low();
 	_delay_us(1);
 }
 
 
-static void lcd_write(u08 data, u08 rs)
+static void lcd_write(uint8_t data, uint8_t rs)
 {
 	/* configure data pins as output */
 	lcd_data_port_out();
-	_delay_us(4);
 
 	/* output high nibble first */
 
 	lcd_out_high(data);
-	_delay_us(4);
+	_delay_us(2);
 
 	if (rs)
 		lcd_data_mode();	/* RS=1: write data            */
@@ -128,7 +128,7 @@ static void lcd_write(u08 data, u08 rs)
 
 	/* output low nibble */
 	lcd_out_low(data);
-	_delay_us(4);
+	_delay_us(2);
 
 	if (rs)
 		lcd_data_mode();	/* RS=1: write data            */
@@ -139,26 +139,24 @@ static void lcd_write(u08 data, u08 rs)
 }
 
 
-static unsigned char lcd_waitcmd(unsigned char cmdwait)
+static void lcd_waitcmd(uint8_t do_cmd_wait)
 /* this function used to loop while lcd is busy and read address i
  * counter however for this we need the RW line. This function
  * has been changed to just delay a bit. In that case the LCD
  * is only slightly slower but we do not need the RW pin. */
 {
-        _delay_us(9);
+        _delay_us(15);
 	/* the display needs much longer to process a command */
-	if (cmdwait){
+	if (do_cmd_wait){
 		lcd_delay_ms(2);
 	}
-	return (0); 
 }
-
 
 /*
 ** PUBLIC FUNCTIONS 
 */
 
-void lcd_command(u08 cmd)
+void lcd_command(uint8_t cmd)
 /* send commando <cmd> to LCD */
 {
 	lcd_waitcmd(0);
@@ -167,7 +165,7 @@ void lcd_command(u08 cmd)
 }
 
 
-void lcd_gotoxy(u08 x, u08 y)
+void lcd_gotoxy(uint8_t x, uint8_t y)
 /* goto position (x,y) */
 {
 #if LCD_LINES==1
@@ -206,7 +204,7 @@ void lcd_putc(char c)
 /* print character at current cursor position */
 {
 	lcd_waitcmd(0);
-	lcd_write((unsigned char)c, 1);
+	lcd_write((uint8_t)c, 1);
 	lcd_waitcmd(0);
 }
 
@@ -222,7 +220,7 @@ void lcd_puts(const char *s)
 }
 
 
-void lcd_puts_p(const prog_char *progmem_s)
+void lcd_puts_p(const char *progmem_s)
 /* print string from program memory on lcd  */
 {
 	register char c;
@@ -234,16 +232,15 @@ void lcd_puts_p(const prog_char *progmem_s)
 }
 
 
-void lcd_init(u08 dispAttr)
+void lcd_init(uint8_t dispAttr)
 /* initialize display and select type of cursor */
 /* dispAttr: LCD_DISP_OFF, LCD_DISP_ON, LCD_DISP_ON_CURSOR, LCD_DISP_CURSOR_BLINK */
 {
-    /*------ Initialize lcd to 4 bit i/o mode -------*/
-
-	lcd_data_port_out();	/* all data port bits as output */
-	sbi(LCD_RS_DDR, LCD_RS_PIN);	/* RS pin as output */
+        //------ Initialize lcd to 4 bit i/o mode 
 	sbi(LCD_E_DDR, LCD_E_PIN);	/* E  pin as output */
-
+        lcd_e_low();
+	sbi(LCD_RS_DDR, LCD_RS_PIN);	/* RS pin as output */
+	lcd_data_port_out();	/* all data port bits as output */
 
 	lcd_delay_ms(12);	/* wait 12ms or more after power-on       */
 

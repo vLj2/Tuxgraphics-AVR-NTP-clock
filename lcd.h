@@ -18,9 +18,6 @@
 
 /* you shouldn't need to change anything below this line */
 
-typedef unsigned char  u08;
-typedef unsigned short u16;
-
 
 /* instruction register bit positions */
 #define LCD_CLR             0      /* DB0: clear display */
@@ -83,16 +80,16 @@ typedef unsigned short u16;
 /* 
 ** function prototypes 
 */
-extern void lcd_command(u08 cmd);
-extern void lcd_gotoxy(u08 x, u08 y); /* line 1 y=0, line 2 y=1 */
+extern void lcd_command(uint8_t cmd);
+extern void lcd_gotoxy(uint8_t x, uint8_t y); /* line 1 y=0, line 2 y=1 */
 extern void lcd_putc(char c); /* print character at current cursor position */
 extern void lcd_puts(const char *s); /* print string on lcd (no auto linefeed) */
 
 /* if you hard code a string in the program then you need to decalare
 * it like: char *str =PSTR("hello world");
 * and then use lcd_puts_p(str);*/
-extern void lcd_puts_p(const prog_char *progmem_s); /* print string from program memory on lcd (no auto linefeed) */
-extern void lcd_init(u08 dispAttr); /* initialize the LCD. Call this once*/
+extern void lcd_puts_p(const char *progmem_s); /* print string from program memory on lcd (no auto linefeed) */
+extern void lcd_init(uint8_t dispAttr); /* initialize the LCD. Call this once*/
 
 /*
 ** macros for automatically storing string constant in program memory
