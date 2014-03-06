@@ -37,10 +37,10 @@ static uint8_t myip[4] = {10,0,0,28};
 // web server (=web server is on the same lan as this host) 
 static uint8_t gwip[4] = {10,0,0,2};
 //
-// change summer/winter time and your timezone here (utc -1 is Germany, France etc... in winter), unit is hours times 10:
-//int8_t hours_offset_to_utc=-10;  // -20 means -2.0 hours = -2 hours
-// US/Canada eastern time in summer (+4 hours):
-int16_t hours_offset_to_utc=40;
+// change summer/winter time and your timezone here (GMT +1 is Germany, France etc... in winter), unit is hours times 10:
+//int8_t hours_offset_to_utc=+10;  // +10 means +1.0 hours = +1 hour
+// US/Canada eastern time in summer (-4 hours):
+int16_t hours_offset_to_utc=-40;
 //
 // listen port for tcp/www:
 #define MYWWWPORT 80
@@ -76,8 +76,11 @@ static uint8_t update_at_58_avoid_duplicates=0;
 // on "==" use ">=" and set a state that indicates if you already triggered the alarm.
 static uint32_t time=0;
 static uint8_t lcd_needs_update=0;
+static uint8_t waiting_gw=0;
+static uint8_t display_24hclock=1;
+static uint8_t display_utcoffset=1;
 // eth/ip buffer:
-#define BUFFER_SIZE 600
+#define BUFFER_SIZE 670
 static uint8_t buf[BUFFER_SIZE+1];
 
 // set output to VCC, red LED off
@@ -92,7 +95,7 @@ static char password[10]="secret"; // must be a-z and 0-9, will be cut to 8 char
 uint8_t verify_password(char *str)
 {
         // a simple password/cookie:
-        if (strncmp(password,str,strlen(password))==0){
+        if (strncmp(password,str,strlen(str))==0){
                 return(1);
         }
         return(0);
@@ -164,7 +167,10 @@ uint16_t print_t1js(void)
         plen=fill_tcp_data_p(buf,plen,PSTR("\
 function tzi(){\n\
 var t = new Date();\n\
-document.write(\" [Info: The TZ diff to UTC on your PC is: \"+ t.getTimezoneOffset()/60 +\"]\");\n\
+var tzo=t.getTimezoneOffset()/60;\n\
+var st;\n\
+if (tzo>0) st=\"GMT-\"+tzo; else st=\"GMT+\"+tzo;\n\
+document.write(\" [Info: your PC is: \"+st+\"]\");\n\
 }\n\
 "));
         return(plen);
@@ -185,7 +191,7 @@ uint16_t print_webpage_config(void)
         uint8_t i;
         plen=http200ok();
         plen=fill_tcp_data_p(buf,plen,PSTR("<script src=t1.js></script>"));
-        plen=fill_tcp_data_p(buf,plen,PSTR("<h2>clock config</h2><pre>MAC addr: "));
+        plen=fill_tcp_data_p(buf,plen,PSTR("<h2>config</h2><pre>MAC addr: "));
         mk_net_str(gStrbuf,mymac,6,':',16);
         plen=fill_tcp_data(buf,plen,gStrbuf);
         plen=fill_tcp_data_p(buf,plen,PSTR("\n<form action=/cu method=get>Clock IP  :<input type=text name=ip value="));
@@ -197,7 +203,7 @@ uint16_t print_webpage_config(void)
         plen=fill_tcp_data_p(buf,plen,PSTR(">\nNTP srv IP:<input type=text name=ns value="));
         mk_net_str(gStrbuf,ntpip,4,'.',10);
         plen=fill_tcp_data(buf,plen,gStrbuf);
-        plen=fill_tcp_data_p(buf,plen,PSTR(">\nUTC offset:<input type=text name=tz value="));
+        plen=fill_tcp_data_p(buf,plen,PSTR(">\nGMT offset:<input type=text name=tz value="));
         i=0;
         if (hours_offset_to_utc>=0){
                 gStrbuf[i]='+';
@@ -207,7 +213,16 @@ uint16_t print_webpage_config(void)
         adddotifneeded(&(gStrbuf[i]));
         plen=fill_tcp_data(buf,plen,gStrbuf);
         plen=fill_tcp_data_p(buf,plen,PSTR("><script>tzi()</script>\n"));
-        plen=fill_tcp_data_p(buf,plen,PSTR("New passwd:<input type=text name=np>\n\nPasswd:    <input type=password name=pw>\n<input type=submit value=apply></form>\n"));
+        plen=fill_tcp_data_p(buf,plen,PSTR("show: <input type=checkbox name=hh"));
+        if (display_24hclock){
+                plen=fill_tcp_data_p(buf,plen,PSTR(" checked"));
+        }
+        plen=fill_tcp_data_p(buf,plen,PSTR(">24h <input type=checkbox name=uo"));
+        if (display_utcoffset){
+                plen=fill_tcp_data_p(buf,plen,PSTR(" checked"));
+        }
+        plen=fill_tcp_data_p(buf,plen,PSTR(">GMT offset\n\n"));
+        plen=fill_tcp_data_p(buf,plen,PSTR("New pw:<input type=text name=np>\n\npw:    <input type=password name=pw><input type=submit value=apply></form>\n"));
         return(plen);
 }
 
@@ -216,15 +231,15 @@ uint16_t print_webpage(void)
 {
         uint16_t plen;
         char day[16];
-        char clock[16];
+        char clock[12];
         plen=http200ok();
         plen=fill_tcp_data_p(buf,plen,PSTR("<h2>NTP clock</h2><pre>\n"));
         if (haveNTPanswer){ // 1 or 2
-                gmtime(time+(int32_t)-360*(int32_t)hours_offset_to_utc,day,clock);
+                gmtime(time+(int32_t)+360*(int32_t)hours_offset_to_utc,display_24hclock,day,clock);
                 plen=fill_tcp_data(buf,plen,day);
                 plen=fill_tcp_data(buf,plen,"\n");
                 plen=fill_tcp_data(buf,plen,clock);
-                plen=fill_tcp_data_p(buf,plen,PSTR(" (UTC "));
+                plen=fill_tcp_data_p(buf,plen,PSTR(" (GMT"));
                 if (hours_offset_to_utc>=0){
                         plen=fill_tcp_data(buf,plen,"+");
                 }
@@ -235,10 +250,11 @@ uint16_t print_webpage(void)
                 if (haveNTPanswer>1){
                         plen=fill_tcp_data_p(buf,plen,PSTR("Last ntp sync is older than 1 hour\n"));
                 }
-                plen=fill_tcp_data_p(buf,plen,PSTR("</pre><br><a href=\"./\">[refresh]</a>\n"));
+                plen=fill_tcp_data_p(buf,plen,PSTR("</pre><br>\n"));
         }else{
-                plen=fill_tcp_data_p(buf,plen,PSTR("Waiting for NTP answer...<br><a href=\"./\">[refresh]</a>"));
+                plen=fill_tcp_data_p(buf,plen,PSTR("Waiting for NTP answer...<br>\n"));
         }
+        plen=fill_tcp_data_p(buf,plen,PSTR("<a href=\"./config\">[config]</a> <a href=\"./\">[refresh]</a>\n"));
         return(plen);
 }
 
@@ -284,6 +300,14 @@ int8_t analyse_get_url(char *str)
                                                 updateerr=1;
                                         }
                                 }
+                                display_24hclock=0;
+                                if (find_key_val(str,gStrbuf,STR_BUFFER_SIZE,"hh")){
+                                        display_24hclock=1;
+                                }
+                                display_utcoffset=0;
+                                if (find_key_val(str,gStrbuf,STR_BUFFER_SIZE,"uo")){
+                                        display_utcoffset=1;
+                                }
                                 if (find_key_val(str,gStrbuf,STR_BUFFER_SIZE,"tz")){
                                         urldecode(gStrbuf);
                                         deldot(gStrbuf);
@@ -313,10 +337,12 @@ int8_t analyse_get_url(char *str)
                                 eeprom_write_block((uint8_t *)ntpip,(void *)11,sizeof(ntpip));
                                 eeprom_write_byte((uint8_t *)16,hours_offset_to_utc);
                                 eeprom_write_block((char *)password,(void *)19,sizeof(password));
+                                eeprom_write_byte((uint8_t *)30,display_utcoffset);
+                                eeprom_write_byte((uint8_t *)31,display_24hclock);
                                 prev_minutes=99; // refresh the full display
-                                }
                                 return(1);
                         }
+                }
         }
         return(-1); // Unauthorized
 }
@@ -324,11 +350,11 @@ int8_t analyse_get_url(char *str)
 void print_time_to_lcd(void)
 {
         char day[16];
-        char clock[16];
+        char clock[12];
         uint8_t minutes;
 
         // returns day and time-string in seperate variables:
-        minutes=gmtime(time+(int32_t)-360*(int32_t)hours_offset_to_utc,day,clock);
+        minutes=gmtime(time+(int32_t)+360*(int32_t)hours_offset_to_utc,display_24hclock,day,clock);
         if (prev_minutes!=minutes){
                 // update complete display including day
                 lcd_clrscr();
@@ -339,14 +365,17 @@ void print_time_to_lcd(void)
         // write first line
         lcd_gotoxy(0,0);
         lcd_puts(clock);
-        lcd_puts_P(" (");
-        if (hours_offset_to_utc>=0){
-                lcd_puts_P("+");
+        lcd_gotoxy(11,0);
+        if (display_utcoffset){
+                if (hours_offset_to_utc>=0){
+                        lcd_puts_P("+");
+                }
+                itoa(hours_offset_to_utc,gStrbuf,10);
+                adddotifneeded(gStrbuf);
+                lcd_puts(gStrbuf);
+        }else{
+                lcd_puts_P("   ");
         }
-        itoa(hours_offset_to_utc,gStrbuf,10);
-        adddotifneeded(gStrbuf);
-        lcd_puts(gStrbuf);
-        lcd_puts_P(")"); 
         // write to first line
         lcd_gotoxy(15,0);
         lcd_putc(lindicator);
@@ -455,13 +484,16 @@ int main(void){
                         hours_offset_to_utc=(int8_t)eeprom_read_byte((uint8_t *)16);
                         eeprom_read_block((char *)password,(void *)19,sizeof(password));
                         password[7]='\0'; // make sure it is terminated, should not be necessary
+                        display_utcoffset=(int8_t)eeprom_read_byte((uint8_t *)30);
+                        display_24hclock=(int8_t)eeprom_read_byte((uint8_t *)31);
                 }
         }
         
         //init the web server ethernet/ip layer:
         init_ip_arp_udp_tcp(mymac,myip,MYWWWPORT);
-        // init the web client:
+        // init the client code:
         client_set_gwip(gwip);  // e.g internal IP of dsl router
+        waiting_gw=1;
         lcd_clrscr();
         lcd_puts_P("waiting for");
         lcd_gotoxy(0,1);
@@ -512,17 +544,27 @@ UDP:
                 if(eth_type_is_ip_and_my_ip(buf,pktlen)==0){
                         // we are idle here (no incomming packet to process).
                         // In other words these are our background tasks:
-                        if (send_ntp_req_from_idle_loop && client_waiting_gw()==0){
-                                LEDON;
+                        if (haveNTPanswer && send_ntp_req_from_idle_loop && client_waiting_gw()==0){
                                 ntpclientportL++; // new src port
                                 send_ntp_req_from_idle_loop=0;
                                 client_ntp_request(buf,ntpip,ntpclientportL);
-                                if (haveNTPanswer==0){
-                                        lcd_clrscr();
-                                        lcd_puts_P("waiting for");
-                                        lcd_gotoxy(0,1);
-                                        lcd_puts_P("NTP srv");
+                        }
+                        if (haveNTPanswer==0 && lcd_needs_update>1 ){
+                                lcd_clrscr();
+                                lcd_puts_P("waiting for");
+                                lcd_gotoxy(0,1);
+                                lcd_puts_P("NTP srv");
+                                if (enc28j60linkup()){
+                                        ntpclientportL++; // new src port
+                                        client_ntp_request(buf,ntpip,ntpclientportL);
                                 }
+                                lcd_needs_update=0;
+                                continue;
+                        }
+                        if (waiting_gw==1 && lcd_needs_update>1 && enc28j60linkup()){
+                                client_gw_arp_refresh();
+                                lcd_needs_update=0;
+                                continue;
                         }
                         // -- update the LCD
                         if (haveNTPanswer && lcd_needs_update){

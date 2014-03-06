@@ -54,9 +54,10 @@ uint8_t monthlen(uint8_t isleapyear,uint8_t month){
 // the entire display when the minutes have changed and otherwise just
 // write current time (clock). That way an LCD display needs complete
 // re-write only every minute.
-uint8_t gmtime(const uint32_t time,char *day, char *clock)
+uint8_t gmtime(const uint32_t time,uint8_t show24h,char *day, char *clock)
 {
-        char dstr[4];
+        char dstr[4]; // week days
+        char ampm[3]="pm"; 
         uint8_t i;
 	uint32_t dayclock;
         uint16_t dayno;
@@ -86,7 +87,18 @@ uint8_t gmtime(const uint32_t time,char *day, char *clock)
         }
         dstr[3]='\0';
 	sprintf_P(day,PSTR("%s %u-%02u-%02u"),dstr,tm_year,tm_mon+1,dayno + 1);
-	sprintf_P(clock,PSTR("%02u:%02u:%02u"),tm_hour,tm_min,tm_sec);
+        if (show24h){
+                sprintf_P(clock,PSTR("%02u:%02u:%02u  "),tm_hour,tm_min,tm_sec);
+        }else{
+                if (tm_hour<12){
+                        ampm[0]='a';;
+                        ampm[1]='m';
+                }else{
+                        tm_hour-=12;
+                }
+                if (tm_hour==0) tm_hour=12;
+                sprintf_P(clock,PSTR("%02u:%02u:%02u%s"),tm_hour,tm_min,tm_sec,ampm);
+        }
         return(tm_min);
 }
 

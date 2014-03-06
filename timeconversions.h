@@ -13,7 +13,7 @@
 // and ntp time starts 1900.
 #define GETTIMEOFDAY_TO_NTP_OFFSET 2208988800UL
 
-extern uint8_t gmtime(const uint32_t time,char *day, char *clock);
+extern uint8_t gmtime(const uint32_t time,uint8_t show24,char *day, char *clock);
 
 
 #endif /* TIMECONVERSIONS_H */

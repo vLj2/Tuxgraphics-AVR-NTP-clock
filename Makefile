@@ -1,8 +1,7 @@
 # makefile, written by guido socher
-MCU=atmega168
-DUDECPUTYPE=m168
-#MCU=atmega328p
-#DUDECPUTYPE=m328p
+# note atmega168 is no longer supported. Use version 1.0 for atmega168
+MCU=atmega328p
+DUDECPUTYPE=m328p
 #
 # === Edit this and enter the correct device/com-port:
 # linux (plug in the avrusb500 and type dmesg to see which device it is):
@@ -25,7 +24,7 @@ LOADARG=-p $(DUDECPUTYPE) -c stk500v2 -e -U flash:w:
 CC=avr-gcc
 OBJCOPY=avr-objcopy
 # optimize for size:
-CFLAGS=-g -mmcu=$(MCU) -Wall -W -Os -mcall-prologues
+CFLAGS=-g -mmcu=$(MCU) -Wall -W -Os -mcall-prologues -Wno-deprecated-declarations -D__PROG_TYPES_COMPAT__
 #-------------------
 .PHONY: all main
 #
